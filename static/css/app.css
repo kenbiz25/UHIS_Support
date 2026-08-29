@@ -1,0 +1,341 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   Medtronic LABS brand system — design tokens + Bootstrap remap.
+   Bootstrap utility classes (.text-*, .bg-*, .border-*, .alert-*, links, focus
+   ring, radius, font) read their root CSS variables at runtime, so overriding
+   --bs-* here retints them automatically. .btn-* variants are the exception —
+   Bootstrap's compiled CSS bakes their hover/active shades as literal hex on
+   the component class itself rather than referencing the root variables, so
+   those are re-declared explicitly further below.
+   ════════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* ── Ink / neutrals ── */
+  --ml-ink-900:#010101; --ml-ink-800:#2A2826; --ml-ink-600:#555555; --ml-ink-500:#70706E; --ml-ink-400:#909090;
+  --ml-white:#FFFFFF; --ml-offwhite:#FCFBF9; --ml-grey:#DEDDD8; --ml-black:#000000;
+
+  /* ── Brand blues ── */
+  --ml-brand:#2514BE; --ml-blue:#2514BE; --ml-blue-30:#BCB5F7;
+  --ml-brand-hover:#2011A5; --ml-brand-active:#180D7C;
+  --ml-periwinkle:#6165DE; --ml-mark-periwinkle:#655AD0;
+  --ml-accent:#54CC90; --ml-deep-green:#00A372;
+
+  /* ── Palette accents ── */
+  --ml-pink:#E98B8B; --ml-merlot:#994242; --ml-maroon:#751A1A;
+  --ml-terracotta:#EB956A; --ml-burnt-orange:#C35721;
+  --ml-mark-peach:#F1B495; --ml-peach:#FFBB98;
+  --ml-mark-seafoam:#88DBB1; --ml-seafoam:#54CC90; --ml-peppermint:#99EFC4;
+
+  /* ── Surfaces / borders ── */
+  --surface-page:#FCFBF9; --surface-card:#FFFFFF; --surface-sunken:#FCFBF9;
+  --surface-brand:#2514BE; --surface-brand-soft:#EFEDFF; --surface-muted:#DEDDD8;
+  --border-default:#CFCEC8; --border-subtle:#DEDDD8; --border-strong:#2A2826; --border-brand:#2514BE;
+
+  /* ── Status ── */
+  --status-success:#2E9E6B; --status-success-soft:#99EFC4;
+  --status-warning:#C35721; --status-warning-soft:#FFBB98;
+  --status-danger:#994242;  --status-danger-soft:#E98B8B;
+  --status-info:#6165DE;    --status-info-soft:#BCB5F7;
+  --focus-ring:#6165DE;
+
+  /* ── Bootstrap remap: theme colors ── */
+  --bs-primary:var(--ml-brand);        --bs-primary-rgb:37,20,190;
+  --bs-secondary:var(--ml-ink-600);    --bs-secondary-rgb:89,89,89;
+  --bs-success:var(--status-success);  --bs-success-rgb:46,158,107;
+  --bs-info:var(--status-info);        --bs-info-rgb:97,101,222;
+  --bs-warning:var(--status-warning);  --bs-warning-rgb:195,87,33;
+  --bs-danger:var(--status-danger);    --bs-danger-rgb:153,66,66;
+  --bs-light:var(--ml-offwhite);       --bs-light-rgb:252,251,249;
+  --bs-dark:var(--ml-ink-800);         --bs-dark-rgb:42,40,38;
+
+  /* ── Bootstrap remap: emphasis / subtle variants (used by .alert-*, .bg-*-subtle) ── */
+  --bs-primary-text-emphasis:var(--ml-brand-active);   --bs-primary-bg-subtle:var(--surface-brand-soft);  --bs-primary-border-subtle:var(--ml-blue-30);
+  --bs-success-text-emphasis:#175a3d;                  --bs-success-bg-subtle:var(--status-success-soft); --bs-success-border-subtle:var(--ml-mark-seafoam);
+  --bs-info-text-emphasis:var(--ml-brand-active);      --bs-info-bg-subtle:var(--status-info-soft);       --bs-info-border-subtle:var(--ml-periwinkle);
+  --bs-warning-text-emphasis:#7a3715;                  --bs-warning-bg-subtle:var(--status-warning-soft); --bs-warning-border-subtle:var(--ml-terracotta);
+  --bs-danger-text-emphasis:var(--ml-maroon);          --bs-danger-bg-subtle:var(--status-danger-soft);   --bs-danger-border-subtle:var(--ml-pink);
+
+  /* ── Bootstrap remap: body / borders / links / focus / radius / shadow / font ── */
+  --bs-body-color:var(--ml-ink-800);   --bs-body-color-rgb:42,40,38;
+  --bs-body-bg:var(--surface-page);    --bs-body-bg-rgb:252,251,249;
+  --bs-secondary-color:var(--ml-ink-600);
+  --bs-secondary-bg:var(--surface-muted);
+  --bs-border-color:var(--border-default);
+  --bs-border-color-translucent:rgba(42,40,38,.15);
+
+  --bs-link-color:var(--ml-brand);            --bs-link-color-rgb:37,20,190;
+  --bs-link-hover-color:var(--ml-brand-hover); --bs-link-hover-color-rgb:26,17,166;
+
+  --bs-focus-ring-color:rgba(97,101,222,.35);
+
+  /* Radius scale — soft, generous curves; pills for buttons (applied on .btn below) */
+  --bs-border-radius:.625rem;
+  --bs-border-radius-sm:.375rem;
+  --bs-border-radius-lg:1rem;
+  --bs-border-radius-xl:1.5rem;
+
+  /* Elevation — soft shadows tinted toward brand indigo */
+  --bs-box-shadow:0 .5rem 1.5rem rgba(37,20,190,.10);
+  --bs-box-shadow-sm:0 .25rem .5rem rgba(37,20,190,.08);
+  --bs-box-shadow-lg:0 1rem 3rem rgba(37,20,190,.14);
+
+  --bs-font-sans-serif:'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+body { font-family: var(--bs-font-sans-serif); }
+
+/* ── Buttons — component classes bake their own hex, see note above ── */
+.btn { border-radius: 50rem; }
+.btn-primary {
+  --bs-btn-color:#fff; --bs-btn-bg:var(--ml-brand); --bs-btn-border-color:var(--ml-brand);
+  --bs-btn-hover-color:#fff; --bs-btn-hover-bg:var(--ml-brand-hover); --bs-btn-hover-border-color:var(--ml-brand-hover);
+  --bs-btn-active-color:#fff; --bs-btn-active-bg:var(--ml-brand-active); --bs-btn-active-border-color:var(--ml-brand-active);
+  --bs-btn-disabled-bg:var(--ml-brand); --bs-btn-disabled-border-color:var(--ml-brand);
+  --bs-btn-focus-shadow-rgb:97,101,222;
+}
+.btn-success {
+  --bs-btn-color:#fff; --bs-btn-bg:var(--status-success); --bs-btn-border-color:var(--status-success);
+  --bs-btn-hover-color:#fff; --bs-btn-hover-bg:#25835a; --bs-btn-hover-border-color:#25835a;
+  --bs-btn-active-color:#fff; --bs-btn-active-bg:#206e4b; --bs-btn-active-border-color:#206e4b;
+  --bs-btn-disabled-bg:var(--status-success); --bs-btn-disabled-border-color:var(--status-success);
+}
+.btn-danger {
+  --bs-btn-color:#fff; --bs-btn-bg:var(--status-danger); --bs-btn-border-color:var(--status-danger);
+  --bs-btn-hover-color:#fff; --bs-btn-hover-bg:#7d3636; --bs-btn-hover-border-color:#7d3636;
+  --bs-btn-active-color:#fff; --bs-btn-active-bg:var(--ml-maroon); --bs-btn-active-border-color:var(--ml-maroon);
+  --bs-btn-disabled-bg:var(--status-danger); --bs-btn-disabled-border-color:var(--status-danger);
+}
+.btn-warning {
+  --bs-btn-color:#fff; --bs-btn-bg:var(--status-warning); --bs-btn-border-color:var(--status-warning);
+  --bs-btn-hover-color:#fff; --bs-btn-hover-bg:#a3481b; --bs-btn-hover-border-color:#a3481b;
+  --bs-btn-active-color:#fff; --bs-btn-active-bg:#8a3c17; --bs-btn-active-border-color:#8a3c17;
+  --bs-btn-disabled-bg:var(--status-warning); --bs-btn-disabled-border-color:var(--status-warning);
+}
+.btn-info {
+  --bs-btn-color:#fff; --bs-btn-bg:var(--status-info); --bs-btn-border-color:var(--status-info);
+  --bs-btn-hover-color:#fff; --bs-btn-hover-bg:var(--ml-mark-periwinkle); --bs-btn-hover-border-color:var(--ml-mark-periwinkle);
+  --bs-btn-active-color:#fff; --bs-btn-active-bg:#4d51c4; --bs-btn-active-border-color:#4d51c4;
+  --bs-btn-disabled-bg:var(--status-info); --bs-btn-disabled-border-color:var(--status-info);
+}
+.btn-secondary {
+  --bs-btn-color:#fff; --bs-btn-bg:var(--ml-ink-600); --bs-btn-border-color:var(--ml-ink-600);
+  --bs-btn-hover-color:#fff; --bs-btn-hover-bg:var(--ml-ink-800); --bs-btn-hover-border-color:var(--ml-ink-800);
+  --bs-btn-active-color:#fff; --bs-btn-active-bg:var(--ml-ink-900); --bs-btn-active-border-color:var(--ml-ink-900);
+  --bs-btn-disabled-bg:var(--ml-ink-600); --bs-btn-disabled-border-color:var(--ml-ink-600);
+}
+.btn-outline-primary {
+  --bs-btn-color:var(--ml-brand); --bs-btn-border-color:var(--ml-brand);
+  --bs-btn-hover-color:#fff; --bs-btn-hover-bg:var(--ml-brand); --bs-btn-hover-border-color:var(--ml-brand);
+  --bs-btn-active-color:#fff; --bs-btn-active-bg:var(--ml-brand); --bs-btn-active-border-color:var(--ml-brand);
+  --bs-btn-disabled-color:var(--ml-brand); --bs-btn-disabled-border-color:var(--ml-brand);
+}
+.btn-outline-secondary {
+  --bs-btn-color:var(--ml-ink-600); --bs-btn-border-color:var(--border-strong);
+  --bs-btn-hover-color:#fff; --bs-btn-hover-bg:var(--ml-ink-600); --bs-btn-hover-border-color:var(--ml-ink-600);
+  --bs-btn-active-color:#fff; --bs-btn-active-bg:var(--ml-ink-600); --bs-btn-active-border-color:var(--ml-ink-600);
+}
+
+/* ── Skip nav ──────────────────────────────────────────────────────────────── */
+.skip-nav { position:absolute; top:-40px; left:0; background:var(--ml-brand); color:#fff; padding:8px 16px; z-index:9999; transition:top .2s; }
+.skip-nav:focus { top:0; }
+
+/* ── Main content — clears fixed navbar ──────────────────────────────────────── */
+#mainWrapper {
+  margin-top: 56px;
+  min-height: calc(100vh - 56px);
+  overflow-x: hidden;
+}
+
+/* ── Navbar — never let its content wrap to a 2nd line. The nav is fixed-height
+   (56px); when brand + nav dropdowns + right-side icons don't fit one row,
+   Bootstrap's default flex-wrap:wrap on .container-fluid pushes the overflow
+   to a second line that spills out past the 56px box and lands on top of the
+   page content underneath — invisible-looking but still intercepting clicks.
+   The real fix is the d-xxl-flex breakpoint change in base.html (keeps the
+   crowded full nav row off anything narrower than 1400px); this is just a
+   backstop so it can never silently wrap even if that assumption is wrong. */
+.navbar > .container-fluid {
+  flex-wrap: nowrap;
+}
+
+/* ── Topbar — always has a dark navy background (--nav-bg), regardless of the
+   site's light/dark theme toggle. Force readable colors explicitly instead of
+   relying on Bootstrap's theme-relative text-light/btn-outline-light utilities,
+   which can lose contrast against it once data-bs-theme flips to dark. ─────── */
+.navbar,
+.navbar .navbar-brand,
+.navbar .nav-link,
+.navbar .dropdown-toggle,
+.navbar .theme-toggle,
+.navbar .notif-bell .fa-bell,
+#mobileSidebar,
+#mobileSidebar .nav-link {
+  color: rgba(255, 255, 255, .85) !important;
+}
+.navbar .btn-outline-light {
+  color: #fff !important;
+  border-color: rgba(255, 255, 255, .5) !important;
+}
+/* Contextual icon/badge colors (text-info, bg-info.text-dark, etc.) keep their
+   own semantic colors — only the plain neutral nav text needed forcing above. */
+
+/* This <nav> never uses Bootstrap's .navbar-expand-* class, so .navbar-nav keeps
+   Bootstrap's default flex-direction:column (meant for the collapsed/mobile
+   state) at every width — the d-xxl-flex utility on the <ul> only ever set
+   display:flex, never flex-direction, so the whole desktop nav-links list was
+   rendering as a vertical column stacked below Dashboard, spilling down over
+   the page content underneath. Force the row layout the desktop nav needs. */
+.navbar .navbar-nav {
+  flex-direction: row;
+}
+
+.navbar-nav .nav-link {
+  font-size: .875rem;
+  padding-left: .6rem;
+  padding-right: .6rem;
+  border-radius: 4px;
+  transition: background .15s;
+}
+.navbar-nav .nav-link:hover { background: rgba(255,255,255,.1); color: #fff !important; }
+.navbar-nav .nav-link.fw-semibold { color: #fff !important; }
+
+/* Active indicator underline */
+.navbar-nav .nav-link.fw-semibold::after {
+  content: '';
+  display: block;
+  height: 2px;
+  background: var(--ml-accent);
+  border-radius: 2px;
+  margin-top: 2px;
+}
+
+/* Dark dropdown tweaks */
+.dropdown-menu-dark .dropdown-header {
+  color: var(--ml-ink-400);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding-top: .6rem;
+}
+.dropdown-menu-dark .dropdown-item { font-size: .875rem; }
+.dropdown-menu-dark .dropdown-item:hover { background: rgba(255,255,255,.08); }
+
+/* Mobile offcanvas section labels */
+.mobile-nav-section {
+  color: var(--ml-periwinkle);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  padding: 12px 22px 4px;
+  text-transform: uppercase;
+}
+
+/* ── Notification badge ──────────────────────────────────────────────────────── */
+.notif-bell { font-size: 1.1rem; padding: 4px 8px; text-decoration: none; }
+.notif-bell:hover .fa-bell { color: var(--ml-peach) !important; }
+.notif-count {
+  position: absolute; top: 0; right: 0;
+  background: var(--status-danger); color: #fff;
+  font-size: .6rem; font-weight: 700;
+  border-radius: 10px; padding: 1px 5px;
+  min-width: 16px; text-align: center;
+  line-height: 1.4;
+  transform: translate(30%, -30%);
+}
+
+/* Centre brand whenever the hamburger/offcanvas nav is in use (below xxl, matches base.html) */
+@media (max-width: 1399.98px) {
+  .navbar > .container-fluid { position: relative; }
+  .navbar-brand {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 0;
+  }
+}
+
+/* ── Content ─────────────────────────────────────────────────────────────────── */
+/* Cap width on wide monitors so content sits centered with breathing room on
+   both sides, instead of stretching edge-to-edge and leaving huge gaps inside
+   rows (e.g. ticket cards) that were only using a fraction of a 1900px row. */
+.main-content { min-height: calc(100vh - 56px); max-width: 1400px; margin-left: auto; margin-right: auto; }
+body { background-color: var(--bs-body-bg); overflow-x: hidden; }
+
+/* Mobile adjustments */
+@media (max-width: 767.98px) {
+  /* Extra bottom clearance so the fixed support-widget FAB (bottom-right,
+     ~80px footprint) never sits over the last row of page content/buttons. */
+  .main-content { padding: 1rem !important; padding-bottom: 96px !important; }
+  .col-md-10 { width: 100% !important; }
+  .fs-3, .fs-4 { font-size: 1.1rem !important; }
+  .card-body { padding: 0.875rem !important; }
+  .btn-group .btn { font-size: .75rem; padding: .25rem .5rem; }
+
+  /* Tab bars scroll horizontally instead of wrapping into a jumbled multi-line mess */
+  .nav-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav-tabs .nav-item { flex-shrink: 0; }
+}
+
+/* Tablet adjustments */
+@media (min-width: 768px) and (max-width: 1199.98px) {
+  .main-content { padding: 1.25rem !important; }
+}
+
+/* ── Mobile-collapsible sections (progressive disclosure on phone) ─────────────── */
+details.mobile-collapsible summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .75rem 1rem;
+  border-radius: .5rem;
+  background: var(--bs-tertiary-bg, #f8f9fa);
+  border: 1px solid var(--bs-border-color);
+  font-weight: 600;
+  font-size: .9rem;
+  margin-bottom: .75rem;
+}
+details.mobile-collapsible summary::-webkit-details-marker { display: none; }
+details.mobile-collapsible summary::after {
+  content: "\f107"; /* fa-chevron-down */
+  font-family: "Font Awesome 6 Free"; font-weight: 900;
+  transition: transform .15s;
+  color: var(--bs-secondary-color, #6c757d);
+}
+details.mobile-collapsible[open] summary::after { transform: rotate(180deg); }
+details.mobile-collapsible[open] summary { margin-bottom: 1rem; }
+
+/* ── Stat cards ──────────────────────────────────────────────────────────────── */
+.stat-card { border: none; border-radius: 12px; }
+.stat-card .icon-wrap {
+  width: 48px; height: 48px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.3rem;
+}
+.badge-priority { font-size: .75rem; }
+.table-hover tbody tr:hover { background-color: rgba(var(--bs-primary-rgb), .06); cursor: pointer; }
+
+/* ── Drag-drop zones ─────────────────────────────────────────────────────────── */
+.drop-zone {
+  border: 2px dashed var(--bs-border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.drop-zone.drag-over { border-color: var(--ml-brand); background: rgba(37,20,190,.05); }
+.drop-zone:hover { border-color: var(--ml-brand); }
+
+/* ── Theme toggle ────────────────────────────────────────────────────────────── */
+.theme-toggle { background: none; border: none; color: rgba(255,255,255,.7); padding: 4px 8px; cursor: pointer; }
+.theme-toggle:hover { color: var(--ml-peach); }
+
+/* ── Keyboard shortcut badge ─────────────────────────────────────────────────── */
+kbd { font-size: .75rem; }

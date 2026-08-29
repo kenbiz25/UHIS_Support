@@ -6,6 +6,12 @@
 # the background scheduler) — regenerated on every boot, never commit
 .scheduler.lock
 
+# ── Unrelated sibling project ───────────────────────────────────────────────────
+# A full copy of the separate BDSupport (WhatsApp-RAG) project, its own nested
+# .git repo, and its .env with live credentials - never belongs in this repo's
+# history.
+BDSupport/
+
 # ── Environment & Secrets ───────────────────────────────────────────────────────
 .env
 .env.local

@@ -56,7 +56,7 @@ A multi-channel, intelligent support platform built for Medtronic LABS' Banglade
 - **Visual rule builder** — if/then automation rules at `/admin/automation` with 7 condition fields and 8 action types
 - **Trigger events** — ticket created, status changed, priority changed, reply received
 - **Actions** — set priority/status, assign agent, add tag, escalate, add internal note, notify staff, send email to reporter
-- **Background scheduler** — APScheduler runs aging checks every 30 min and CSAT dispatch every 60 min automatically
+- **Background scheduler** — APScheduler runs aging checks every 30 min and CSAT dispatch every 60 min automatically. A file lock (`.scheduler.lock`) ensures only one worker process runs it, even with multiple workers — otherwise every worker would fire its own aging/CSAT jobs.
 
 ### Knowledge Base
 
@@ -118,7 +118,7 @@ A multi-channel, intelligent support platform built for Medtronic LABS' Banglade
 | WhatsApp | Meta Cloud API (Graph v18) or Twilio |
 | Widget | Vanilla JS, Shadow DOM, zero dependencies (AI Assistant touchpoint calls OpenAI server-side when configured) |
 
-> **Production path**: Flask → FastAPI; SQLite → PostgreSQL; APScheduler → Celery + Redis for distributed workers.
+> **Production path**: Flask → FastAPI; SQLite → PostgreSQL; APScheduler → Celery + Redis for distributed workers. Rate limiting already supports Redis today (`REDIS_URL`) for multi-worker deployments — no code changes needed, just set the variable. Also set `SECRET_KEY`, `API_KEY`, and leave `FLASK_DEBUG` unset/`false`, and run behind a real WSGI server (gunicorn/waitress), not `python app.py`.
 
 ---
 
@@ -200,6 +200,9 @@ Copy `.env.example` to `.env`. Variables marked **required** must be set for tha
 | `SECRET_KEY` | *(insecure default)* | **Required** — Flask session signing key. Set to a long random string in production. |
 | `DATABASE_URL` | `sqlite:///database.db` | SQLAlchemy connection URI. Use `postgresql://user:pass@host/db` for PostgreSQL. |
 | `SUPERADMIN_PASSWORD` | *(random, printed on boot)* | Initial password for the `superadmin` account. Set before first run; otherwise a secure random password is generated and printed once to stdout. |
+| `API_KEY` | *(insecure default)* | **Required** — used by internal automation endpoints. Set to a long random string in production. |
+| `FLASK_DEBUG` | `false` | Set to `true` only for local development. Leave unset/`false` in production — debug mode exposes an interactive debugger on error pages. |
+| `REDIS_URL` | *(blank — in-memory)* | Shared storage for the rate limiter. Only needed once you run more than one worker process; with it blank, each worker keeps its own counters. |
 
 ### Email / SMTP
 
@@ -221,6 +224,7 @@ One webhook family (`routes/webhooks.py`) supports both providers; `WA_PROVIDER`
 | `WHATSAPP_TOKEN` | — | Meta Cloud API permanent / system user token |
 | `WHATSAPP_PHONE_ID` | — | Phone Number ID from Meta Business dashboard |
 | `WHATSAPP_VERIFY_TOKEN` | — | **Required for Meta** — verification token you enter when registering the webhook on Meta. Set to any secret string. |
+| `WHATSAPP_API_VERSION` | `v18.0` | Meta Graph API version used for outbound sends |
 | `TWILIO_ACCOUNT_SID` | — | Twilio Account SID |
 | `TWILIO_AUTH_TOKEN` | — | Twilio Auth Token |
 | `TWILIO_WA_FROM` | `whatsapp:+14155238886` | Twilio WhatsApp sender number |

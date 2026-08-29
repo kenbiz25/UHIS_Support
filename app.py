@@ -123,7 +123,7 @@ def create_app(config_class=Config):
     with app.app_context():
         db.create_all()
         if db.engine.dialect.name == "sqlite":
-         _migrate_db()
+            _migrate_db()
         _seed_superadmin()
         _seed_sla_policies()
         _seed_countries()

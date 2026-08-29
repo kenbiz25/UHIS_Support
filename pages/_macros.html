@@ -1,0 +1,44 @@
+{#
+  Shared UI macros — import in child templates with:
+    {% from "_macros.html" import page_header %}
+
+  page_header(title, icon, subtitle, back_url)
+    Renders the standard page-top bar.
+    - title      : required
+    - icon       : Font Awesome class string, e.g. "fas fa-users"
+    - subtitle   : optional second line below the title
+    - back_url   : if provided, shows a ← back button before the title
+    - caller     : optional block rendered on the right side (action buttons)
+
+  Usage without actions:
+    {{ page_header('User Management', icon='fas fa-users text-primary') }}
+
+  Usage with back button:
+    {{ page_header('Edit Rule', back_url=url_for('automation.index')) }}
+
+  Usage with action buttons (call block):
+    {% call page_header('Automation Rules', icon='fas fa-robot') %}
+      <a href="{{ url_for('automation.create') }}" class="btn btn-primary btn-sm">
+        <i class="fas fa-plus me-1"></i>New Rule
+      </a>
+    {% endcall %}
+#}
+
+{% macro page_header(title, icon='', subtitle='', back_url='') %}
+<div class="d-flex justify-content-between align-items-{{ 'start' if subtitle else 'center' }} mb-4 flex-wrap gap-2">
+  <div class="d-flex align-items-center gap-2">
+    {% if back_url %}
+    <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm" aria-label="Go back">
+      <i class="fas fa-arrow-left"></i>
+    </a>
+    {% endif %}
+    <div>
+      <h4 class="fw-bold mb-0">{% if icon %}<i class="{{ icon }} me-2"></i>{% endif %}{{ title }}</h4>
+      {% if subtitle %}<p class="text-muted small mb-0">{{ subtitle }}</p>{% endif %}
+    </div>
+  </div>
+  {% if caller is defined %}
+  <div class="d-flex gap-2 flex-wrap">{{ caller() }}</div>
+  {% endif %}
+</div>
+{% endmacro %}
