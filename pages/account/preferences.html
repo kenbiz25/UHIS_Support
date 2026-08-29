@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}My Preferences{% endblock %}
+{% from "_macros.html" import page_header %}
+{% block content %}
+<div class="container py-4" style="max-width:600px">
+  {{ page_header('Account Preferences', icon='fas fa-sliders-h text-primary', subtitle='Timezone and language settings affect how dates and the interface appear to you.') }}
+
+  <form method="post">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold">Localization</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Timezone</label>
+          <select name="timezone" class="form-select">
+            {% for tz in timezones %}
+            <option value="{{ tz }}" {{ 'selected' if current_user.timezone == tz else '' }}>{{ tz }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">All dates and times will display in your selected timezone.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Display Language</label>
+          <select name="language" class="form-select">
+            {% for code, name in languages %}
+            <option value="{{ code }}" {{ 'selected' if current_user.language == code else '' }}>{{ name }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">UI translations are in progress. Currently English only.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold">Privacy & Data</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">Download a copy of all data associated with your account (GDPR Data Portability).</p>
+        <a href="{{ url_for('auth.gdpr_export') }}" class="btn btn-outline-info btn-sm">
+          <i class="fas fa-download me-1"></i>Export My Data (JSON)
+        </a>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">
+      <i class="fas fa-save me-1"></i>Save Preferences
+    </button>
+  </form>
+</div>
+{% endblock %}

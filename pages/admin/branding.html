@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Branding Settings{% endblock %}
+{% from "_macros.html" import page_header %}
+{% block content %}
+<div class="container-fluid py-4" style="max-width:860px">
+  {{ page_header('Branding & Customization', icon='fas fa-paint-brush text-primary', subtitle='Customize the look and feel of your support portal.') }}
+
+  <form method="post">
+    <div class="row g-4">
+      <div class="col-md-7">
+        <div class="card shadow-sm mb-4">
+          <div class="card-header fw-semibold">Application Identity</div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">App Name</label>
+              <input type="text" name="app_name" class="form-control" value="{{ settings.app_name or 'Bangladesh UHIS' }}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Tagline</label>
+              <input type="text" name="tagline" class="form-control" value="{{ settings.tagline or '' }}" placeholder="e.g. Multi-channel support platform">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Logo URL</label>
+              <input type="url" name="logo_url" class="form-control" value="{{ settings.logo_url or '' }}" placeholder="https://your-cdn.com/logo.png">
+              <div class="form-text">Will replace the text brand in the navbar.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Favicon URL</label>
+              <input type="url" name="favicon_url" class="form-control" value="{{ settings.favicon_url or '' }}" placeholder="https://your-cdn.com/favicon.ico">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Support Email</label>
+              <input type="email" name="support_email" class="form-control" value="{{ settings.support_email or '' }}" placeholder="support@example.com">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-5">
+        <div class="card shadow-sm mb-4">
+          <div class="card-header fw-semibold">Theme Colors</div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Primary Accent Color</label>
+              <div class="input-group">
+                <input type="color" name="primary_color" class="form-control form-control-color" value="{{ settings.primary_color or '#2514BE' }}">
+                <input type="text" class="form-control font-monospace" value="{{ settings.primary_color or '#2514BE' }}"
+                       oninput="this.previousElementSibling.value=this.value">
+              </div>
+              <div class="form-text">Used for buttons, links, and highlights.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Navigation Background</label>
+              <div class="input-group">
+                <input type="color" name="nav_bg" class="form-control form-control-color" value="{{ settings.nav_bg or '#1e2a38' }}">
+                <input type="text" class="form-control font-monospace" value="{{ settings.nav_bg or '#1e2a38' }}"
+                       oninput="this.previousElementSibling.value=this.value">
+              </div>
+              <div class="form-text">Sidebar and top-nav background color.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+          <div class="card-header fw-semibold">Live Preview</div>
+          <div class="card-body text-center py-4" id="preview-area">
+            {% if settings.logo_url %}
+              <img src="{{ settings.logo_url }}" alt="Logo" style="max-height:48px" class="mb-2">
+            {% else %}
+              <i class="fas fa-ticket-alt fa-2x mb-2" id="preview-icon"></i>
+            {% endif %}
+            <div class="fw-bold" id="preview-name">{{ settings.app_name or 'Bangladesh UHIS' }}</div>
+            <div class="text-muted small" id="preview-tagline">{{ settings.tagline or '' }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-2">
+      <button type="submit" class="btn btn-primary">
+        <i class="fas fa-save me-1"></i>Save Branding
+      </button>
+      <a href="{{ url_for('dashboard.main') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+<script>
+document.querySelector('[name=app_name]').addEventListener('input', e => {
+  document.getElementById('preview-name').textContent = e.target.value || 'Bangladesh UHIS';
+});
+document.querySelector('[name=tagline]').addEventListener('input', e => {
+  document.getElementById('preview-tagline').textContent = e.target.value;
+});
+</script>
+{% endblock %}

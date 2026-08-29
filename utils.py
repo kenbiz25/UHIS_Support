@@ -92,11 +92,11 @@ def verify_reset_token(token, max_age=3600):
 
 
 def send_reset_email(to_email, reset_url, full_name):
-    subject = "Password Reset Request - Support Ticketing System"
+    subject = "Password Reset Request - Bangladesh UHIS"
 
     plain = f"""Hello {full_name},
 
-You requested a password reset for your Support Ticketing System account.
+You requested a password reset for your Bangladesh UHIS account.
 
 Reset link (expires in 1 hour):
 {reset_url}
@@ -104,13 +104,13 @@ Reset link (expires in 1 hour):
 If you did not request this, you can safely ignore this email.
 Your password will not change until you click the link above and set a new one.
 
-Support Ticketing System
+Bangladesh UHIS
 """
 
     html = f"""
 <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;">
   <div style="text-align:center;margin-bottom:24px;">
-    <h2 style="color:#0d6efd;margin:0;">Support Ticketing System</h2>
+    <h2 style="color:#2514BE;margin:0;">Bangladesh UHIS</h2>
     <p style="color:#6c757d;font-size:14px;margin:4px 0 0;">Password Reset Request</p>
   </div>
   <div style="background:#f8f9fa;border-radius:8px;padding:24px;margin-bottom:24px;">
@@ -118,7 +118,7 @@ Support Ticketing System
     <p>You requested a password reset for your account. Click the button below to set a new password.</p>
     <p style="text-align:center;margin:28px 0;">
       <a href="{reset_url}"
-         style="background:#0d6efd;color:#fff;padding:12px 28px;border-radius:6px;
+         style="background:#2514BE;color:#fff;padding:12px 28px;border-radius:6px;
                 text-decoration:none;font-weight:600;display:inline-block;">
         Reset Password
       </a>
@@ -130,7 +130,7 @@ Support Ticketing System
   </div>
   <p style="font-size:12px;color:#adb5bd;text-align:center;margin:0;">
     If the button doesn't work, copy and paste this URL:<br>
-    <a href="{reset_url}" style="color:#0d6efd;">{reset_url}</a>
+    <a href="{reset_url}" style="color:#2514BE;">{reset_url}</a>
   </p>
 </div>
 """
@@ -153,7 +153,7 @@ Log in to view the full ticket details.
     html = f"""
 <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;">
   <div style="text-align:center;margin-bottom:24px;">
-    <h2 style="color:#0d6efd;margin:0;">Support Ticketing System</h2>
+    <h2 style="color:#2514BE;margin:0;">Bangladesh UHIS</h2>
     <p style="color:#6c757d;font-size:14px;margin:4px 0 0;">Ticket Status Update</p>
   </div>
   <div style="background:#f8f9fa;border-radius:8px;padding:24px;">
@@ -167,7 +167,7 @@ Log in to view the full ticket details.
       </tr>
       <tr>
         <td style="padding:8px 12px;background:#e9ecef;font-weight:600;">New Status</td>
-        <td style="padding:8px 12px;background:#fff;border:1px solid #dee2e6;color:#198754;
+        <td style="padding:8px 12px;background:#fff;border:1px solid #dee2e6;color:#00A372;
                    font-weight:600;">{new_status}</td>
       </tr>
       <tr>
@@ -195,10 +195,39 @@ def notify_staff(message, ticket_id=None, notif_type="info",
                  exclude_user_id=None, roles=None):
     from models import User, Role
     if roles is None:
-        roles = [Role.SUPER_ADMIN, Role.ADMIN, Role.DSO]
+        roles = [Role.SUPER_ADMIN, Role.ADMIN, Role.AGENT]
     for u in User.query.filter(User.role.in_(roles), User.is_active == True).all():
         if u.id != exclude_user_id:
             create_notification(u.id, message, ticket_id, notif_type)
+
+
+def auto_route_ticket(ticket, level):
+    """Assign `ticket` to the least-loaded active agent at `level` (1-4).
+
+    Falls back to Admins if no agent at that tier is active. Returns the
+    assigned User, or None if nobody was available.
+    """
+    from models import db, User, Role, Ticket
+
+    candidates = User.query.filter(
+        User.role == Role.AGENT, User.agent_level == level, User.is_active == True
+    ).all()
+    if not candidates:
+        candidates = User.query.filter(User.role == Role.AGENT, User.is_active == True).all()
+    if not candidates:
+        candidates = User.query.filter(User.role == Role.ADMIN, User.is_active == True).all()
+    if not candidates:
+        return None
+
+    best = min(
+        candidates,
+        key=lambda u: Ticket.query.filter(
+            Ticket.assigned_to_id == u.id,
+            Ticket.current_status.notin_(["Resolved", "Closed"]),
+        ).count(),
+    )
+    ticket.assigned_to_id = best.id
+    return best
 
 
 def log_history(ticket_id, changed_by_id, action, old_value=None, new_value=None):
@@ -219,7 +248,7 @@ def notify_slack(message: str, ticket=None, level: str = "info") -> bool:
     url = current_app.config.get("SLACK_WEBHOOK_URL")
     if not url:
         return False
-    color = {"danger": "#dc3545", "warning": "#ffc107", "success": "#198754"}.get(level, "#0d6efd")
+    color = {"danger": "#751A1A", "warning": "#C35721", "success": "#00A372"}.get(level, "#2514BE")
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
     if ticket:
         blocks.append({"type": "context", "elements": [
@@ -242,7 +271,7 @@ def notify_teams(message: str, ticket=None, level: str = "info") -> bool:
     url = current_app.config.get("TEAMS_WEBHOOK_URL")
     if not url:
         return False
-    theme_color = {"danger": "FF0000", "warning": "FFC107", "success": "198754"}.get(level, "0D6EFD")
+    theme_color = {"danger": "751A1A", "warning": "C35721", "success": "00A372"}.get(level, "2514BE")
     body = [{"type": "TextBlock", "text": message, "wrap": True}]
     if ticket:
         body.append({"type": "TextBlock", "wrap": True, "isSubtle": True,

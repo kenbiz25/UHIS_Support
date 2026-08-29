@@ -10,7 +10,7 @@ db = SQLAlchemy()
 class Role(enum.Enum):
     SUPER_ADMIN = "Super Admin"
     ADMIN = "Admin"
-    DSO = "DSO"
+    AGENT = "Agent"     # tiered L1-L4; L1 handles first contact, escalates up to L4
     REPORTER = "Reporter"
     VIEWER = "Viewer"
 
@@ -140,6 +140,9 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Agent tier (1-4). Only meaningful when role == Role.AGENT.
+    agent_level = db.Column(db.Integer, nullable=True)
+
     reported_tickets = db.relationship(
         "Ticket", foreign_keys="Ticket.reporter_id", backref="reporter_user", lazy=True
     )
@@ -150,11 +153,17 @@ class User(UserMixin, db.Model):
     def is_admin(self):
         return self.role in (Role.SUPER_ADMIN, Role.ADMIN)
 
+    def is_agent(self):
+        return self.role == Role.AGENT
+
+    def agent_level_label(self):
+        return f"L{self.agent_level}" if self.agent_level else None
+
     def can_update_tickets(self):
-        return self.role in (Role.SUPER_ADMIN, Role.ADMIN, Role.DSO)
+        return self.role in (Role.SUPER_ADMIN, Role.ADMIN, Role.AGENT)
 
     def can_view_reports(self):
-        return self.role in (Role.SUPER_ADMIN, Role.ADMIN, Role.DSO, Role.VIEWER)
+        return self.role in (Role.SUPER_ADMIN, Role.ADMIN, Role.AGENT, Role.VIEWER)
 
     def has_regional_role(self, role, country_id=None):
         q = UserRegionRole.query.filter_by(user_id=self.id, role=role)
@@ -186,6 +195,7 @@ class Ticket(db.Model):
     # Intake channel
     channel = db.Column(db.String(20), default="web")   # web | whatsapp | email | api | widget
     external_id = db.Column(db.String(200))              # dedup key for whatsapp/email
+    whatsapp_phone = db.Column(db.String(30))             # set when channel='whatsapp'; agent replies relay here
 
     # Widget metadata (set when channel='widget')
     widget_app = db.Column(db.String(100))               # which app the widget is embedded in
@@ -302,6 +312,13 @@ class Ticket(db.Model):
             "Closed": "secondary",
             "Reopened": "danger",
         }.get(self.current_status, "secondary")
+
+    def required_agent_level(self):
+        """Agent tier this ticket currently needs — L1 at creation, +1 per escalation, capped at L4."""
+        return min(self.escalation_level + 1, 4)
+
+    def level_label(self):
+        return f"L{self.required_agent_level()}"
 
     def sla_status(self):
         if not self.due_date or self.current_status in ("Resolved", "Closed"):
@@ -732,11 +749,11 @@ class BrandingSettings(db.Model):
     __tablename__ = "branding_settings"
 
     id = db.Column(db.Integer, primary_key=True)
-    app_name = db.Column(db.String(100), default="Support Tickets")
+    app_name = db.Column(db.String(100), default="Bangladesh UHIS")
     tagline = db.Column(db.String(200), default="Multi-channel support platform")
     logo_url = db.Column(db.String(300))
     favicon_url = db.Column(db.String(300))
-    primary_color = db.Column(db.String(20), default="#1d6fa4")
+    primary_color = db.Column(db.String(20), default="#2514BE")
     nav_bg = db.Column(db.String(20), default="#1e2a38")
     support_email = db.Column(db.String(120))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -797,7 +814,7 @@ class CountryEscalationMatrix(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     country_id = db.Column(db.Integer, db.ForeignKey("countries.id", ondelete="CASCADE"), nullable=False)
     levels_json = db.Column(db.JSON, default=list)  # list of level dicts
-    streams_json = db.Column(db.JSON, default=list)  # for multi-stream countries (Kenya)
+    streams_json = db.Column(db.JSON, default=list)  # for multi-stream escalation flows
     notes = db.Column(db.Text)
     updated_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -837,3 +854,19 @@ class BroadcastMessage(db.Model):
     recipient_count = db.Column(db.Integer, default=0)
     status = db.Column(db.String(20), default="sent")
     sent_by = db.relationship("User", backref="broadcasts_sent")
+
+
+# ── UI Translation Cache ────────────────────────────────────────────────────────
+
+class TranslationCache(db.Model):
+    __tablename__ = "translation_cache"
+    id = db.Column(db.Integer, primary_key=True)
+    lang = db.Column(db.String(10), nullable=False)
+    text_hash = db.Column(db.String(64), nullable=False)
+    source_text = db.Column(db.Text, nullable=False)
+    translated_text = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("lang", "text_hash", name="uq_translation_cache_lang_hash"),
+    )

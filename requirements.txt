@@ -12,3 +12,7 @@ openpyxl==3.1.2
 pytz==2024.1
 APScheduler==3.10.4
 Flask-APScheduler==1.13.1
+Authlib==1.7.2
+openai>=1.0.0
+filelock>=3.13.0
+redis>=5.0.0

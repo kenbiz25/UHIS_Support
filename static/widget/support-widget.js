@@ -11,11 +11,81 @@
   var BASE_URL      = (scriptEl && scriptEl.getAttribute('data-base-url'))      || '';
   var APP           = (scriptEl && scriptEl.getAttribute('data-app'))           || '';
   var TOKEN         = (scriptEl && scriptEl.getAttribute('data-token'))         || '';
-  var PRIMARY_COLOR = (scriptEl && scriptEl.getAttribute('data-primary-color')) || '#1d6fa4';
+  var PRIMARY_COLOR = (scriptEl && scriptEl.getAttribute('data-primary-color')) || '#2514BE';
   var USER_NAME     = (scriptEl && scriptEl.getAttribute('data-name'))          || '';
   var USER_CONTACT  = (scriptEl && scriptEl.getAttribute('data-contact'))       || '';
+  var DEFAULT_LANG  = (scriptEl && scriptEl.getAttribute('data-lang'))          || 'en';
+  var WHATSAPP_NUM  = (scriptEl && scriptEl.getAttribute('data-whatsapp'))      || '';
 
   if (!BASE_URL) return; // nothing to do without a base URL
+
+  // ── i18n ────────────────────────────────────────────────────────────────────
+  var STRINGS = {
+    en: {
+      aria_support: 'Support', aria_widget: 'Support Widget',
+      aria_close_panel: 'Close support panel', aria_close: 'Close',
+      search_placeholder: 'Search for help...', aria_search_kb: 'Search knowledge base',
+      btn_submit_request_secondary: 'Submit a Support Request', searching: 'Searching…',
+      empty_no_results: "Can't find what you need?", btn_submit_request: 'Submit a Request',
+      search_failed: 'Search failed. Please try again.', article_fallback: 'Article',
+      back_to_search: 'Back to search', label_name: 'Name', placeholder_name: 'Your full name',
+      label_contact: 'Phone or Email', placeholder_contact: 'Phone number or email address',
+      label_issue: 'Issue Description', placeholder_issue: 'Describe your issue or question in detail…',
+      err_required: 'Please fill in all required fields.', submitting: 'Submitting…',
+      btn_submit_request_primary: 'Submit Request', err_submit_failed: 'Submission failed. Please try again.',
+      title_ticket_status: 'Ticket Status', success_submitted: 'Your request has been submitted successfully.',
+      label_ticket_ref: 'Ticket Reference', label_status: 'Status',
+      status_open: 'Open', status_inprogress: 'In Progress', status_resolved: 'Resolved', status_closed: 'Closed',
+      rate_experience: 'Rate your support experience', thanks_feedback: 'Thank you for your feedback!',
+      btn_submit_another: 'Submit Another Request',
+      touchpoints_label: 'Or get help another way',
+      btn_chat_whatsapp: 'Chat on WhatsApp', btn_ask_ai: 'Ask AI Assistant',
+      ai_chat_title: 'AI Assistant', ai_input_placeholder: 'Type your question...',
+      ai_thinking: 'Thinking...', ai_contact_intro: "Great, let's get this logged. Please share your details:",
+      btn_create_ticket: 'Create Ticket', ai_send: 'Send',
+    },
+    bn: {
+      aria_support: 'সমর্থন', aria_widget: 'সমর্থন উইজেট',
+      aria_close_panel: 'সমর্থন প্যানেল বন্ধ করুন', aria_close: 'বন্ধ',
+      search_placeholder: 'সাহায্যের জন্য অনুসন্ধান করুন...', aria_search_kb: 'জ্ঞানের ভিত্তি অনুসন্ধান করুন',
+      btn_submit_request_secondary: 'একটি সমর্থন অনুরোধ জমা দিন', searching: 'অনুসন্ধান করা হচ্ছে...',
+      empty_no_results: 'আপনার যা প্রয়োজন তা খুঁজে পাচ্ছেন না?', btn_submit_request: 'একটি অনুরোধ জমা দিন',
+      search_failed: 'অনুসন্ধান ব্যর্থ হয়েছে। আবার চেষ্টা করুন।', article_fallback: 'প্রবন্ধ',
+      back_to_search: 'অনুসন্ধানে ফিরে যান', label_name: 'নাম', placeholder_name: 'আপনার পুরো নাম',
+      label_contact: 'ফোন বা ইমেইল', placeholder_contact: 'ফোন নম্বর বা ইমেল ঠিকানা',
+      label_issue: 'সমস্যার বিবরণ', placeholder_issue: 'আপনার সমস্যা বা প্রশ্ন বিস্তারিতভাবে বর্ণনা করুন…',
+      err_required: 'সমস্ত প্রয়োজনীয় ক্ষেত্র পূরণ করুন।', submitting: 'জমা দেওয়া হচ্ছে...',
+      btn_submit_request_primary: 'অনুরোধ জমা দিন', err_submit_failed: 'জমা দিতে ব্যর্থ হয়েছে। আবার চেষ্টা করুন।',
+      title_ticket_status: 'টিকিটের অবস্থা', success_submitted: 'আপনার অনুরোধ সফলভাবে জমা দেওয়া হয়েছে।',
+      label_ticket_ref: 'টিকিট রেফারেন্স', label_status: 'স্ট্যাটাস',
+      status_open: 'খোলা', status_inprogress: 'চলছে', status_resolved: 'সমাধান করা হয়েছে', status_closed: 'বন্ধ',
+      rate_experience: 'আপনার সমর্থন অভিজ্ঞতা রেট করুন', thanks_feedback: 'আপনার প্রতিক্রিয়ার জন্য ধন্যবাদ!',
+      btn_submit_another: 'আরেকটি অনুরোধ জমা দিন',
+      touchpoints_label: 'অথবা অন্যভাবে সাহায্য নিন',
+      btn_chat_whatsapp: 'হোয়াটসঅ্যাপে চ্যাট করুন', btn_ask_ai: 'এআই সহায়ককে জিজ্ঞাসা করুন',
+      ai_chat_title: 'এআই সহায়ক', ai_input_placeholder: 'আপনার প্রশ্ন লিখুন...',
+      ai_thinking: 'ভাবছি...', ai_contact_intro: 'ঠিক আছে, এবার আপনার তথ্য দিন:',
+      btn_create_ticket: 'টিকিট তৈরি করুন', ai_send: 'পাঠান',
+    },
+  };
+
+  var LANG = (function () {
+    try {
+      var saved = localStorage.getItem('ml_widget_lang');
+      if (saved && STRINGS[saved]) return saved;
+    } catch (e) { /* ignore */ }
+    return STRINGS[DEFAULT_LANG] ? DEFAULT_LANG : 'en';
+  })();
+
+  function t(key) {
+    return (STRINGS[LANG] && STRINGS[LANG][key]) || STRINGS.en[key] || key;
+  }
+
+  function setLang(lang) {
+    if (!STRINGS[lang] || lang === LANG) return;
+    LANG = lang;
+    try { localStorage.setItem('ml_widget_lang', lang); } catch (e) { /* ignore */ }
+  }
 
   // ── CSS ─────────────────────────────────────────────────────────────────────
   var CSS = [
@@ -76,6 +146,15 @@
     '  opacity:.85;transition:opacity .15s;',
     '}',
     '.w-btn-icon:hover{opacity:1;background:rgba(255,255,255,.15);}',
+
+    // Language switch
+    '.w-lang-switch{display:flex;gap:4px;align-items:center;}',
+    '.w-lang-btn{',
+    '  background:none;border:none;cursor:pointer;color:rgba(255,255,255,.75);',
+    '  font-size:11px;font-weight:600;padding:2px 5px;border-radius:4px;font-family:inherit;',
+    '}',
+    '.w-lang-btn.active{color:#fff;background:rgba(255,255,255,.18);}',
+    '.w-header-actions{display:flex;align-items:center;gap:8px;}',
 
     // Body
     '.w-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;}',
@@ -192,6 +271,32 @@
 
     '.w-loading{display:flex;align-items:center;justify-content:center;gap:8px;color:#888;font-size:13px;padding:12px;}',
     '.w-loading-ring{width:20px;height:20px;border:2.5px solid #e0e0e0;border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite;}',
+
+    // Touchpoints row (WhatsApp / AI Assistant quick actions)
+    '.w-touchpoints-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#999;text-align:center;}',
+    '.w-touchpoints{display:flex;gap:8px;}',
+    '.w-touchpoint-btn{',
+    '  flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;',
+    '  padding:12px 8px;border:1.5px solid #e0e0e0;border-radius:10px;',
+    '  background:#fff;cursor:pointer;font-family:inherit;font-size:11.5px;font-weight:600;color:#333;',
+    '  transition:border-color .15s,background .15s;',
+    '}',
+    '.w-touchpoint-btn:hover{border-color:var(--primary);background:#f9faff;}',
+    '.w-touchpoint-btn svg{width:22px;height:22px;}',
+
+    // AI chat
+    '.w-chat-log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-bottom:4px;}',
+    '.w-chat-msg{max-width:82%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.4;white-space:pre-wrap;}',
+    '.w-chat-msg.user{align-self:flex-end;background:var(--primary);color:#fff;border-bottom-right-radius:4px;}',
+    '.w-chat-msg.assistant{align-self:flex-start;background:#f0f2f5;color:#1a1a1a;border-bottom-left-radius:4px;}',
+    '.w-chat-input-row{display:flex;gap:8px;padding-top:8px;border-top:1px solid #f0f0f0;flex-shrink:0;}',
+    '.w-chat-input-row input.w-input{flex:1;}',
+    '.w-chat-send-btn{',
+    '  width:40px;flex-shrink:0;border:none;border-radius:8px;background:var(--primary);color:#fff;',
+    '  cursor:pointer;display:flex;align-items:center;justify-content:center;',
+    '}',
+    '.w-chat-send-btn:disabled{opacity:.5;cursor:default;}',
+    '.w-chat-body{flex:1;display:flex;flex-direction:column;overflow:hidden;padding:16px;gap:0;}',
   ].join('\n');
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -241,6 +346,25 @@
     return fetch(BASE_URL + path).then(function (r) { return r.json(); });
   }
 
+  function makeLangSwitch(onSwitch) {
+    var wrap = h('div', { className: 'w-lang-switch' });
+    ['en', 'bn'].forEach(function (code) {
+      var btn = h('button', {
+        className: 'w-lang-btn' + (LANG === code ? ' active' : ''),
+        textContent: code === 'bn' ? 'বাং' : 'EN',
+        type: 'button',
+        'aria-label': code === 'bn' ? 'বাংলা' : 'English',
+      });
+      btn.addEventListener('click', function () {
+        if (LANG === code) return;
+        setLang(code);
+        onSwitch();
+      });
+      wrap.appendChild(btn);
+    });
+    return wrap;
+  }
+
   // ── Widget Factory ───────────────────────────────────────────────────────────
   function createWidget() {
     // Host container (outside shadow)
@@ -262,12 +386,12 @@
     shadow.appendChild(themeStyle);
 
     // ── FAB ──────────────────────────────────────────────────────────────────
-    var fab = h('button', { id: 'fab', 'aria-label': 'Support', 'aria-expanded': 'false' });
+    var fab = h('button', { id: 'fab', 'aria-label': t('aria_support'), 'aria-expanded': 'false' });
     fab.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
     shadow.appendChild(fab);
 
     // ── Panel ─────────────────────────────────────────────────────────────────
-    var panel = h('div', { id: 'panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Support Widget' });
+    var panel = h('div', { id: 'panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('aria_widget') });
     shadow.appendChild(panel);
 
     var isOpen = false;
@@ -297,9 +421,15 @@
 
     // ── State ─────────────────────────────────────────────────────────────────
     var state = {
-      view: 'SEARCH', // SEARCH | TICKET_FORM | TICKET_STATUS
+      view: 'SEARCH', // SEARCH | TICKET_FORM | TICKET_STATUS | AI_CHAT
       ticket: null,   // { sl_no, status, csat_token, rated }
       csatToken: TOKEN || null,
+      ai: {
+        phase: 'chat',   // chat | contact | done
+        history: [],     // [{ role, content }]
+        summary: '',
+        ticket: null,    // { sl_no, csat_token }
+      },
     };
 
     // ── Render Router ─────────────────────────────────────────────────────────
@@ -309,6 +439,7 @@
       if (state.view === 'SEARCH') renderSearch();
       else if (state.view === 'TICKET_FORM') renderTicketForm();
       else if (state.view === 'TICKET_STATUS') renderTicketStatus();
+      else if (state.view === 'AI_CHAT') renderAiChat();
     }
 
     // ── SEARCH VIEW ───────────────────────────────────────────────────────────
@@ -319,7 +450,10 @@
           'Medtronic ',
           h('span', { textContent: 'LABS Support' }),
         ]),
-        h('button', { className: 'w-btn-icon', 'aria-label': 'Close support panel' }),
+        h('div', { className: 'w-header-actions' }, [
+          makeLangSwitch(render),
+          h('button', { className: 'w-btn-icon', 'aria-label': t('aria_close_panel') }),
+        ]),
       ]);
       header.querySelector('button').innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
       header.querySelector('button').addEventListener('click', closePanel);
@@ -335,8 +469,8 @@
       var searchInput = h('input', {
         className: 'w-input',
         type: 'search',
-        placeholder: 'Search for help...',
-        'aria-label': 'Search knowledge base',
+        placeholder: t('search_placeholder'),
+        'aria-label': t('aria_search_kb'),
         autocomplete: 'off',
       });
       searchWrap.appendChild(searchInput);
@@ -349,8 +483,38 @@
       // Divider
       body.appendChild(h('hr', { className: 'w-divider' }));
 
+      // Touchpoints: WhatsApp + AI Assistant quick actions
+      body.appendChild(h('div', { className: 'w-touchpoints-label', textContent: t('touchpoints_label') }));
+      var touchpoints = h('div', { className: 'w-touchpoints' });
+
+      if (WHATSAPP_NUM) {
+        var waBtn = h('button', { className: 'w-touchpoint-btn', type: 'button' });
+        waBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2c-5.46 0-9.9 4.44-9.9 9.9 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.9-4.44 9.9-9.9S17.5 2 12.04 2m0 18.1h-.01a8.2 8.2 0 0 1-4.18-1.14l-.3-.18-3.12.82.83-3.04-.2-.31a8.2 8.2 0 0 1-1.26-4.35c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.83 2.42a8.19 8.19 0 0 1 2.41 5.83c0 4.55-3.7 8.19-8.25 8.19"/></svg>';
+        var waLabel = document.createElement('span');
+        waLabel.textContent = t('btn_chat_whatsapp');
+        waBtn.appendChild(waLabel);
+        waBtn.addEventListener('click', function () {
+          window.open('https://wa.me/' + WHATSAPP_NUM.replace(/[^0-9]/g, ''), '_blank', 'noopener');
+        });
+        touchpoints.appendChild(waBtn);
+      }
+
+      var aiBtn = h('button', { className: 'w-touchpoint-btn', type: 'button' });
+      aiBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M3 12h3M18 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/><circle cx="12" cy="12" r="3"/></svg>';
+      var aiLabel = document.createElement('span');
+      aiLabel.textContent = t('btn_ask_ai');
+      aiBtn.appendChild(aiLabel);
+      aiBtn.addEventListener('click', function () {
+        state.view = 'AI_CHAT';
+        render();
+      });
+      touchpoints.appendChild(aiBtn);
+
+      body.appendChild(touchpoints);
+      body.appendChild(h('hr', { className: 'w-divider' }));
+
       // Always-visible submit button
-      var submitBtn = h('button', { className: 'w-btn-secondary', textContent: 'Submit a Support Request' });
+      var submitBtn = h('button', { className: 'w-btn-secondary', textContent: t('btn_submit_request_secondary') });
       submitBtn.addEventListener('click', function () { state.view = 'TICKET_FORM'; render(); });
       body.appendChild(submitBtn);
 
@@ -362,7 +526,7 @@
 
         var loading = h('div', { className: 'w-loading' }, [
           h('div', { className: 'w-loading-ring' }),
-          document.createTextNode('Searching…'),
+          document.createTextNode(t('searching')),
         ]);
         resultsWrap.appendChild(loading);
 
@@ -372,10 +536,10 @@
             var items = Array.isArray(data) ? data : (data.results || []);
             if (!items.length) {
               var empty = h('div', { className: 'w-empty' }, [
-                h('p', { textContent: "Can't find what you need?" }),
+                h('p', { textContent: t('empty_no_results') }),
                 h('br'),
               ]);
-              var suggestBtn = h('button', { className: 'w-btn-primary', textContent: 'Submit a Request', style: 'margin-top:8px;' });
+              var suggestBtn = h('button', { className: 'w-btn-primary', textContent: t('btn_submit_request'), style: 'margin-top:8px;' });
               suggestBtn.addEventListener('click', function () { state.view = 'TICKET_FORM'; render(); });
               empty.appendChild(suggestBtn);
               resultsWrap.appendChild(empty);
@@ -384,7 +548,7 @@
             var list = h('ul', { className: 'w-results' });
             items.forEach(function (item) {
               var li = h('li', { className: 'w-result-item' }, [
-                h('div', { className: 'w-result-title', textContent: item.title || 'Article' }),
+                h('div', { className: 'w-result-title', textContent: item.title || t('article_fallback') }),
                 h('div', { className: 'w-result-desc', textContent: item.meta_description || item.description || '' }),
               ]);
               li.addEventListener('click', function () {
@@ -397,7 +561,7 @@
           })
           .catch(function () {
             while (resultsWrap.firstChild) resultsWrap.removeChild(resultsWrap.firstChild);
-            resultsWrap.appendChild(h('div', { className: 'w-error', textContent: 'Search failed. Please try again.' }));
+            resultsWrap.appendChild(h('div', { className: 'w-error', textContent: t('search_failed') }));
           });
       }
 
@@ -410,8 +574,11 @@
     function renderTicketForm() {
       // Header
       var header = h('div', { className: 'w-header' }, [
-        h('div', { className: 'logo', textContent: 'Submit a Request' }),
-        h('button', { className: 'w-btn-icon', 'aria-label': 'Close' }),
+        h('div', { className: 'logo', textContent: t('btn_submit_request') }),
+        h('div', { className: 'w-header-actions' }, [
+          makeLangSwitch(render),
+          h('button', { className: 'w-btn-icon', 'aria-label': t('aria_close') }),
+        ]),
       ]);
       header.querySelector('button').innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
       header.querySelector('button').addEventListener('click', closePanel);
@@ -422,18 +589,18 @@
 
       // Back
       var backBtn = h('button', { className: 'w-back' });
-      backBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg> Back to search';
+      backBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg> ' + t('back_to_search');
       backBtn.addEventListener('click', function () { state.view = 'SEARCH'; render(); });
       body.appendChild(backBtn);
 
       // Name
       var nameField = h('div', { className: 'w-field' }, [
-        h('label', { className: 'w-label', innerHTML: 'Name <span class="req">*</span>' }),
+        h('label', { className: 'w-label', innerHTML: t('label_name') + ' <span class="req">*</span>' }),
       ]);
       var nameInput = h('input', {
         className: 'w-input',
         type: 'text',
-        placeholder: 'Your full name',
+        placeholder: t('placeholder_name'),
         value: USER_NAME,
         autocomplete: 'name',
       });
@@ -442,12 +609,12 @@
 
       // Contact
       var contactField = h('div', { className: 'w-field' }, [
-        h('label', { className: 'w-label', innerHTML: 'Phone or Email <span class="req">*</span>' }),
+        h('label', { className: 'w-label', innerHTML: t('label_contact') + ' <span class="req">*</span>' }),
       ]);
       var contactInput = h('input', {
         className: 'w-input',
         type: 'text',
-        placeholder: 'Phone number or email address',
+        placeholder: t('placeholder_contact'),
         value: USER_CONTACT,
         autocomplete: 'email',
       });
@@ -456,12 +623,12 @@
 
       // Issue
       var issueField = h('div', { className: 'w-field' }, [
-        h('label', { className: 'w-label', innerHTML: 'Issue Description <span class="req">*</span>' }),
+        h('label', { className: 'w-label', innerHTML: t('label_issue') + ' <span class="req">*</span>' }),
       ]);
       var issueInput = h('textarea', {
         className: 'w-input',
         rows: '4',
-        placeholder: 'Describe your issue or question in detail…',
+        placeholder: t('placeholder_issue'),
       });
       issueField.appendChild(issueInput);
       body.appendChild(issueField);
@@ -471,7 +638,7 @@
       body.appendChild(errDiv);
 
       // Submit
-      var submitBtn = h('button', { className: 'w-btn-primary', textContent: 'Submit Request' });
+      var submitBtn = h('button', { className: 'w-btn-primary', textContent: t('btn_submit_request_primary') });
       body.appendChild(submitBtn);
 
       submitBtn.addEventListener('click', function () {
@@ -482,14 +649,14 @@
         // Validation
         if (!name || !contact || !issue) {
           errDiv.className = 'w-error';
-          errDiv.textContent = 'Please fill in all required fields.';
+          errDiv.textContent = t('err_required');
           errDiv.style.display = '';
           return;
         }
         errDiv.style.display = 'none';
 
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="w-spinner"></span> Submitting…';
+        submitBtn.innerHTML = '<span class="w-spinner"></span> ' + t('submitting');
 
         apiPost('/widget/ticket', {
           name: name,
@@ -511,8 +678,8 @@
           })
           .catch(function (err) {
             submitBtn.disabled = false;
-            submitBtn.textContent = 'Submit Request';
-            var msg = (err && (err.detail || err.message || err.error)) || 'Submission failed. Please try again.';
+            submitBtn.textContent = t('btn_submit_request_primary');
+            var msg = (err && (err.detail || err.message || err.error)) || t('err_submit_failed');
             errDiv.className = 'w-error';
             errDiv.textContent = msg;
             errDiv.style.display = '';
@@ -526,8 +693,11 @@
 
       // Header
       var header = h('div', { className: 'w-header' }, [
-        h('div', { className: 'logo', textContent: 'Ticket Status' }),
-        h('button', { className: 'w-btn-icon', 'aria-label': 'Close' }),
+        h('div', { className: 'logo', textContent: t('title_ticket_status') }),
+        h('div', { className: 'w-header-actions' }, [
+          makeLangSwitch(render),
+          h('button', { className: 'w-btn-icon', 'aria-label': t('aria_close') }),
+        ]),
       ]);
       header.querySelector('button').innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
       header.querySelector('button').addEventListener('click', closePanel);
@@ -539,12 +709,12 @@
       // Success notice
       body.appendChild(h('div', {
         style: 'background:#eafaf1;border:1px solid #b2dfdb;border-radius:8px;padding:10px 14px;font-size:13px;color:#1e8449;font-weight:500;',
-        textContent: 'Your request has been submitted successfully.',
+        textContent: t('success_submitted'),
       }));
 
       // Sl No
       var slBox = h('div', { className: 'w-sl-no' }, [
-        h('div', { className: 'w-sl-label', textContent: 'Ticket Reference' }),
+        h('div', { className: 'w-sl-label', textContent: t('label_ticket_ref') }),
         h('div', { className: 'w-sl-value', textContent: ticket.sl_no }),
       ]);
       body.appendChild(slBox);
@@ -552,13 +722,15 @@
       // Status badge
       var statusClass = 'status-default';
       var st = (ticket.status || '').toLowerCase().replace(/\s+/g, '');
-      if (st === 'open') statusClass = 'status-open';
-      else if (st === 'inprogress' || st === 'in_progress') statusClass = 'status-inprogress';
-      else if (st === 'resolved' || st === 'closed') statusClass = 'status-resolved';
+      var statusKey = 'status_open';
+      if (st === 'open') { statusClass = 'status-open'; statusKey = 'status_open'; }
+      else if (st === 'inprogress' || st === 'in_progress') { statusClass = 'status-inprogress'; statusKey = 'status_inprogress'; }
+      else if (st === 'resolved') { statusClass = 'status-resolved'; statusKey = 'status_resolved'; }
+      else if (st === 'closed') { statusClass = 'status-resolved'; statusKey = 'status_closed'; }
 
       var statusRow = h('div', { style: 'display:flex;align-items:center;justify-content:space-between;padding:4px 0;' }, [
-        h('span', { style: 'font-size:13px;color:#555;font-weight:500;', textContent: 'Status' }),
-        h('span', { className: 'w-status-badge ' + statusClass, textContent: ticket.status || 'Open' }),
+        h('span', { style: 'font-size:13px;color:#555;font-weight:500;', textContent: t('label_status') }),
+        h('span', { className: 'w-status-badge ' + statusClass, textContent: ticket.status ? t(statusKey) : t('status_open') }),
       ]);
       body.appendChild(statusRow);
 
@@ -568,7 +740,7 @@
       var isResolved = (st === 'resolved' || st === 'closed');
       if (isResolved && !ticket.rated) {
         var csatSection = h('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
-        csatSection.appendChild(h('div', { className: 'w-csat-label', textContent: 'Rate your support experience' }));
+        csatSection.appendChild(h('div', { className: 'w-csat-label', textContent: t('rate_experience') }));
 
         var starsRow = h('div', { className: 'w-stars' });
         var currentHover = 0;
@@ -602,7 +774,7 @@
       }
 
       // Submit another
-      var newBtn = h('button', { className: 'w-btn-secondary', textContent: 'Submit Another Request' });
+      var newBtn = h('button', { className: 'w-btn-secondary', textContent: t('btn_submit_another') });
       newBtn.addEventListener('click', function () {
         state.ticket = null;
         state.view = 'SEARCH';
@@ -612,9 +784,202 @@
 
       // Back to search
       var backBtn = h('button', { className: 'w-back', style: 'justify-content:center;width:100%;margin-top:4px;' });
-      backBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg> Back to Search';
+      backBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg> ' + t('back_to_search');
       backBtn.addEventListener('click', function () { state.view = 'SEARCH'; render(); });
       body.appendChild(backBtn);
+    }
+
+    // ── AI_CHAT VIEW ──────────────────────────────────────────────────────────
+    function renderAiChat() {
+      var isChatPhase = state.ai.phase === 'chat';
+
+      // Header
+      var header = h('div', { className: 'w-header' }, [
+        h('div', { className: 'logo', textContent: t('ai_chat_title') }),
+        h('div', { className: 'w-header-actions' }, [
+          makeLangSwitch(render),
+          h('button', { className: 'w-btn-icon', 'aria-label': t('aria_close') }),
+        ]),
+      ]);
+      header.querySelector('button').innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+      header.querySelector('button').addEventListener('click', closePanel);
+      panel.appendChild(header);
+
+      var body = h('div', { className: isChatPhase ? 'w-chat-body' : 'w-body' });
+      panel.appendChild(body);
+
+      var backBtn = h('button', { className: 'w-back', style: 'margin-bottom:8px;flex-shrink:0;' });
+      backBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg> ' + t('back_to_search');
+      backBtn.addEventListener('click', function () { state.view = 'SEARCH'; render(); });
+      body.appendChild(backBtn);
+
+      var log = h('div', { className: 'w-chat-log' });
+      body.appendChild(log);
+
+      function appendMsg(role, text) {
+        log.appendChild(h('div', { className: 'w-chat-msg ' + role, textContent: text }));
+        log.scrollTop = log.scrollHeight;
+      }
+
+      state.ai.history.forEach(function (m) { appendMsg(m.role, m.content); });
+
+      if (isChatPhase) {
+        var inputRow = h('div', { className: 'w-chat-input-row' });
+        var input = h('input', { className: 'w-input', type: 'text', placeholder: t('ai_input_placeholder'), autocomplete: 'off' });
+        var sendBtn = h('button', { className: 'w-chat-send-btn', type: 'button', 'aria-label': t('ai_send') });
+        sendBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+        inputRow.appendChild(input);
+        inputRow.appendChild(sendBtn);
+        body.appendChild(inputRow);
+
+        function send() {
+          var text = input.value.trim();
+          if (!text) return;
+          var priorHistory = state.ai.history.slice(); // turns before this message
+          input.value = '';
+          input.disabled = true;
+          sendBtn.disabled = true;
+          appendMsg('user', text);
+          state.ai.history.push({ role: 'user', content: text });
+
+          var thinking = h('div', { className: 'w-chat-msg assistant', textContent: t('ai_thinking') });
+          log.appendChild(thinking);
+          log.scrollTop = log.scrollHeight;
+
+          apiPost('/widget/ai-chat', { message: text, history: priorHistory })
+            .then(function (data) {
+              log.removeChild(thinking);
+              appendMsg('assistant', data.reply);
+              state.ai.history.push({ role: 'assistant', content: data.reply });
+              if (data.escalate) {
+                state.ai.summary = data.summary || text;
+                state.ai.phase = 'contact';
+                render();
+                return;
+              }
+              input.disabled = false;
+              sendBtn.disabled = false;
+              input.focus();
+            })
+            .catch(function () {
+              log.removeChild(thinking);
+              appendMsg('assistant', t('search_failed'));
+              input.disabled = false;
+              sendBtn.disabled = false;
+            });
+        }
+
+        sendBtn.addEventListener('click', send);
+        input.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
+        input.focus();
+      } else if (state.ai.phase === 'contact') {
+        renderAiContactForm(body);
+      } else if (state.ai.phase === 'done') {
+        renderAiCsat(body);
+      }
+    }
+
+    function renderAiContactForm(body) {
+      body.appendChild(h('hr', { className: 'w-divider' }));
+      body.appendChild(h('div', { className: 'w-csat-label', textContent: t('ai_contact_intro') }));
+
+      var nameField = h('div', { className: 'w-field' }, [
+        h('label', { className: 'w-label', innerHTML: t('label_name') + ' <span class="req">*</span>' }),
+      ]);
+      var nameInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_name'), value: USER_NAME });
+      nameField.appendChild(nameInput);
+      body.appendChild(nameField);
+
+      var contactField = h('div', { className: 'w-field' }, [
+        h('label', { className: 'w-label', innerHTML: t('label_contact') + ' <span class="req">*</span>' }),
+      ]);
+      var contactInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_contact'), value: USER_CONTACT });
+      contactField.appendChild(contactInput);
+      body.appendChild(contactField);
+
+      var errDiv = h('div', { style: 'display:none;' });
+      body.appendChild(errDiv);
+
+      var submitBtn = h('button', { className: 'w-btn-primary', textContent: t('btn_create_ticket') });
+      submitBtn.addEventListener('click', function () {
+        var name = nameInput.value.trim();
+        var contact = contactInput.value.trim();
+        if (!name || !contact) {
+          errDiv.className = 'w-error';
+          errDiv.textContent = t('err_required');
+          errDiv.style.display = '';
+          return;
+        }
+        errDiv.style.display = 'none';
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="w-spinner"></span> ' + t('submitting');
+
+        var transcript = state.ai.history.map(function (m) {
+          return (m.role === 'user' ? 'User: ' : 'Assistant: ') + m.content;
+        }).join('\n');
+        var issue = state.ai.summary + '\n\n--- AI chat transcript ---\n' + transcript;
+
+        apiPost('/widget/ticket', { name: name, contact: contact, issue: issue, app: APP, page: window.location.href })
+          .then(function (data) {
+            state.ai.ticket = { sl_no: data.sl_no || data.ticket_id, csat_token: data.csat_token };
+            state.ai.phase = 'done';
+            render();
+          })
+          .catch(function () {
+            submitBtn.disabled = false;
+            submitBtn.textContent = t('btn_create_ticket');
+            errDiv.className = 'w-error';
+            errDiv.textContent = t('err_submit_failed');
+            errDiv.style.display = '';
+          });
+      });
+      body.appendChild(submitBtn);
+    }
+
+    function renderAiCsat(body) {
+      body.appendChild(h('hr', { className: 'w-divider' }));
+
+      var slBox = h('div', { className: 'w-sl-no' }, [
+        h('div', { className: 'w-sl-label', textContent: t('label_ticket_ref') }),
+        h('div', { className: 'w-sl-value', textContent: state.ai.ticket.sl_no }),
+      ]);
+      body.appendChild(slBox);
+
+      var csatSection = h('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
+      csatSection.appendChild(h('div', { className: 'w-csat-label', textContent: t('rate_experience') }));
+      var starsRow = h('div', { className: 'w-stars' });
+      var rated = false;
+      for (var i = 1; i <= 5; i++) {
+        (function (val) {
+          var star = h('span', { className: 'w-star', textContent: '★', 'data-val': val });
+          star.addEventListener('mouseenter', function () { if (!rated) updateStars(starsRow, 0, val); });
+          star.addEventListener('mouseleave', function () { if (!rated) updateStars(starsRow, 0, 0); });
+          star.addEventListener('click', function () {
+            if (rated) return;
+            rated = true;
+            updateStars(starsRow, val, 0);
+            if (state.ai.ticket.csat_token) {
+              apiPost('/widget/csat/' + encodeURIComponent(state.ai.ticket.csat_token), { rating: val })
+                .then(function () { showCsatThanks(csatSection); })
+                .catch(function () { showCsatThanks(csatSection); });
+            } else {
+              showCsatThanks(csatSection);
+            }
+          });
+          starsRow.appendChild(star);
+        })(i);
+      }
+      csatSection.appendChild(starsRow);
+      body.appendChild(csatSection);
+      body.appendChild(h('hr', { className: 'w-divider' }));
+
+      var newBtn = h('button', { className: 'w-btn-secondary', textContent: t('btn_submit_another') });
+      newBtn.addEventListener('click', function () {
+        state.ai = { phase: 'chat', history: [], summary: '', ticket: null };
+        state.view = 'SEARCH';
+        render();
+      });
+      body.appendChild(newBtn);
     }
 
     function updateStars(starsRow, active, hov) {
@@ -652,7 +1017,7 @@
 
     function showCsatThanks(csatSection) {
       while (csatSection.firstChild) csatSection.removeChild(csatSection.firstChild);
-      csatSection.appendChild(h('div', { className: 'w-csat-thanks', textContent: 'Thank you for your feedback!' }));
+      csatSection.appendChild(h('div', { className: 'w-csat-thanks', textContent: t('thanks_feedback') }));
     }
 
     // Initial render

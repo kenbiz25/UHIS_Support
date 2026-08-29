@@ -2,43 +2,9 @@ from flask import Blueprint, request, jsonify, render_template, redirect, url_fo
 from flask_login import login_required, current_user
 from models import db, User, Role, Country, Ticket, NudgeLog, BroadcastMessage, CSATRating, Notification
 from datetime import datetime, timedelta, date as date_type
-import requests
+from whatsapp_client import send as _wa_send_broadcast
 
 nudges = Blueprint('nudges', __name__, url_prefix='/admin')
-
-
-# ── Internal WhatsApp send helper (duplicated to avoid circular imports) ────────
-
-def _wa_send_broadcast(phone: str, message: str) -> bool:
-    """Send a WhatsApp message for broadcast. Returns True on success, False on failure."""
-    token = current_app.config.get('WHATSAPP_TOKEN')
-    phone_id = current_app.config.get('WHATSAPP_PHONE_ID')
-
-    if not token or not phone_id:
-        current_app.logger.warning(
-            '_wa_send_broadcast: WHATSAPP_TOKEN or WHATSAPP_PHONE_ID not configured — message not sent.'
-        )
-        return False
-
-    url = f'https://graph.facebook.com/v18.0/{phone_id}/messages'
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json',
-    }
-    payload = {
-        'messaging_product': 'whatsapp',
-        'to': phone,
-        'type': 'text',
-        'text': {'body': message},
-    }
-
-    try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=10)
-        resp.raise_for_status()
-        return True
-    except Exception as exc:
-        current_app.logger.warning('_wa_send_broadcast failed for %s: %s', phone, exc)
-        return False
 
 
 # ── GET /admin/broadcasts ────────────────────────────────────────────────────────

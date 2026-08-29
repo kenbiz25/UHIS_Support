@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block title %}Super Admin — Global Overview{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0"><i class="fas fa-globe text-primary me-2"></i>Global Overview</h4>
+    <p class="text-muted small mb-0">Full visibility across all districts and teams</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('dashboard.reports') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-chart-bar me-1"></i>Reports
+    </a>
+    <a href="{{ url_for('tickets.export_csv') }}" class="btn btn-outline-success btn-sm">
+      <i class="fas fa-file-csv me-1"></i>Export All
+    </a>
+    <a href="{{ url_for('tickets.create') }}" class="btn btn-primary btn-sm">
+      <i class="fas fa-plus me-1"></i>New Ticket
+    </a>
+  </div>
+</div>
+
+<!-- Key metrics -->
+<div class="row g-3 mb-4">
+  {% set metrics = [
+    ('total',       stats.total,       'Total Tickets',    'primary',   'ticket-alt'),
+    ('open',        stats.open,        'Open',             'danger',    'folder-open'),
+    ('in_progress', stats.in_progress, 'In Progress',      'warning',   'spinner'),
+    ('resolved',    stats.resolved,    'Resolved',         'success',   'check-circle'),
+    ('critical',    stats.critical,    'Critical',         'danger',    'fire'),
+    ('escalated',   stats.escalated,   'Escalated',        'orange',    'arrow-up'),
+    ('unassigned',  stats.unassigned,  'Unassigned',       'secondary', 'user-slash'),
+    ('rate',        resolution_rate,   'Resolution Rate %','teal',      'chart-line'),
+  ] %}
+  {# Extra metrics row #}
+  <div class="col-12 mb-2 mt-3">
+    <div class="row g-3">
+      <div class="col-6 col-md-3 col-xl">
+        <div class="card border-0 shadow-sm rounded-3 text-center p-3 h-100">
+          <div class="fs-4 fw-bold text-warning">
+            {% if csat_avg %}{{ csat_avg }}★{% else %}—{% endif %}
+          </div>
+          <div class="text-muted small">CSAT Score</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3 col-xl">
+        <div class="card border-0 shadow-sm rounded-3 text-center p-3 h-100 {{ 'border-top border-3 border-danger' if sla_breached_count > 0 else '' }}">
+          <div class="fs-4 fw-bold {{ 'text-danger' if sla_breached_count > 0 else 'text-muted' }}">
+            {{ sla_breached_count }}
+          </div>
+          <div class="text-muted small">SLA Breached</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% for key, val, label, color, icon in metrics %}
+  <div class="col-6 col-md-3 col-xl">
+    <div class="card border-0 shadow-sm rounded-3 h-100 {{ 'border-top border-3 border-danger' if key in ('critical','escalated') and val > 0 else '' }}">
+      <div class="card-body d-flex align-items-center gap-3 p-3">
+        <div class="metric-icon bg-{{ color }} bg-opacity-10 text-{{ color }}">
+          <i class="fas fa-{{ icon }}"></i>
+        </div>
+        <div>
+          <div class="fw-bold fs-4 lh-1">{{ val }}{{ '%' if key == 'rate' else '' }}</div>
+          <div class="text-muted" style="font-size:.72rem;">{{ label }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row g-4 mb-4">
+  <!-- District breakdown -->
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-header bg-white py-2 px-4 fw-semibold border-bottom">
+        <i class="fas fa-map-marker-alt text-danger me-2"></i>District Breakdown
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-4">District</th>
+              <th class="text-center">Total</th>
+              <th class="text-center">Open</th>
+              <th class="text-center d-none d-md-table-cell">Critical</th>
+              <th class="pe-4 d-none d-md-table-cell">Load</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for district, total, open, critical in district_breakdown %}
+            <tr>
+              <td class="ps-4 fw-semibold small">{{ district or '—' }}</td>
+              <td class="text-center small">{{ total }}</td>
+              <td class="text-center">
+                <span class="badge bg-{{ 'danger' if open > 5 else 'warning' if open > 2 else 'secondary' }}">{{ open }}</span>
+              </td>
+              <td class="text-center d-none d-md-table-cell">
+                {% if critical > 0 %}
+                  <span class="badge bg-danger">{{ critical }}</span>
+                {% else %}
+                  <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+              <td class="pe-4 d-none d-md-table-cell" style="width:100px;">
+                <div class="progress" style="height:5px;">
+                  <div class="progress-bar bg-{{ 'danger' if open > 5 else 'warning' if open > 2 else 'primary' }}"
+                       style="width:{{ [open * 10, 100]|min }}%;"></div>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center py-3 text-muted small">No district data yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team performance -->
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-header bg-white py-2 px-4 fw-semibold border-bottom">
+        <i class="fas fa-users text-info me-2"></i>Team Performance
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-4">Member</th>
+              <th class="text-center">Assigned</th>
+              <th class="text-center">Resolved</th>
+              <th class="pe-4 d-none d-md-table-cell">Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for name, role, assigned, resolved in team_stats %}
+            {% set rate = ((resolved or 0) / assigned * 100)|round(0)|int if assigned > 0 else 0 %}
+            <tr>
+              <td class="ps-4">
+                <div class="small fw-semibold">{{ name }}</div>
+                <div class="text-muted" style="font-size:.7rem;">{{ role.value }}</div>
+              </td>
+              <td class="text-center small">{{ assigned }}</td>
+              <td class="text-center small text-success fw-semibold">{{ resolved or 0 }}</td>
+              <td class="pe-4 d-none d-md-table-cell">
+                <div class="d-flex align-items-center gap-1">
+                  <div class="progress flex-grow-1" style="height:5px;">
+                    <div class="progress-bar bg-success" style="width:{{ rate }}%;"></div>
+                  </div>
+                  <small class="text-muted" style="font-size:.65rem;">{{ rate }}%</small>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center py-3 text-muted small">No team data yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent activity -->
+  <div class="col-lg-3">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-header bg-white py-2 px-4 fw-semibold border-bottom">
+        <i class="fas fa-history text-secondary me-2"></i>Recent Activity
+      </div>
+      <ul class="list-group list-group-flush overflow-auto" style="max-height:320px;">
+        {% for h in recent_activity %}
+        <li class="list-group-item px-4 py-2 border-0">
+          <div class="small fw-semibold">
+            {% if h.ticket %}
+              <a href="{{ url_for('tickets.detail', ticket_id=h.ticket_id) }}"
+                 class="text-decoration-none text-primary">{{ h.ticket.sl_no }}</a>
+            {% else %}#{{ h.ticket_id }}{% endif %}
+            — {{ h.action }}
+          </div>
+          {% if h.old_value and h.new_value %}
+          <div style="font-size:.72rem;color:#9ca3af;">
+            {{ h.old_value }} &rarr; {{ h.new_value }}
+          </div>
+          {% endif %}
+          <div style="font-size:.7rem;color:#9ca3af;">
+            {{ h.changed_by.full_name if h.changed_by else 'System' }}
+            · {{ h.created_at.strftime('%b %d %H:%M') }}
+          </div>
+        </li>
+        {% else %}
+        <li class="list-group-item text-center text-muted py-4 small">No activity yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Escalated tickets -->
+{% if escalated %}
+<div class="card border-0 shadow-sm rounded-3 border-danger mb-4" style="border-left: 4px solid #dc3545 !important;">
+  <div class="card-header bg-danger text-white py-2 px-4 fw-semibold">
+    <i class="fas fa-exclamation-triangle me-2"></i>Escalated Tickets — Requires Attention ({{ escalated|length }})
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-4">SL No</th>
+          <th>District</th>
+          <th>Issue</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Escalation</th>
+          <th class="pe-4">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in escalated %}
+        <tr>
+          <td class="ps-4 fw-bold text-danger small">{{ t.sl_no or '#'~t.id }}</td>
+          <td class="small">{{ t.district }}</td>
+          <td class="small text-truncate" style="max-width:180px;">{{ t.issue_type }}</td>
+          <td><span class="badge bg-{{ t.priority_badge() }}">{{ t.priority }}</span></td>
+          <td><span class="badge bg-{{ t.status_badge() }}">{{ t.current_status }}</span></td>
+          <td><span class="badge bg-danger">Level {{ t.escalation_level }}</span></td>
+          <td class="pe-4">
+            <a href="{{ url_for('tickets.detail', ticket_id=t.id) }}"
+               class="btn btn-danger btn-sm">Take Action</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- All tickets -->
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white py-3 px-4 border-bottom">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span class="fw-semibold">All Tickets <span class="badge bg-secondary">{{ all_tickets|length }}</span></span>
+      <form method="GET" class="d-flex flex-wrap gap-2 align-items-center">
+        <input type="text" name="search" class="form-control form-control-sm" style="width:160px; min-width:90px;"
+               placeholder="Search..." value="{{ filters.search }}">
+        <select name="status" class="form-select form-select-sm" style="width:120px; min-width:80px;">
+          <option value="">All Statuses</option>
+          {% for s in statuses %}<option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select>
+        <select name="priority" class="form-select form-select-sm" style="width:110px; min-width:80px;">
+          <option value="">All Priorities</option>
+          {% for p in priorities %}<option value="{{ p }}" {% if filters.priority == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+        </select>
+        <select name="district" class="form-select form-select-sm" style="width:130px; min-width:90px;">
+          <option value="">All Districts</option>
+          {% for d in districts %}<option value="{{ d }}" {% if filters.district == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+        <a href="{{ url_for('dashboard.main') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-times"></i></a>
+      </form>
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-4">SL No</th>
+          <th>Reporter</th>
+          <th>District</th>
+          <th>Issue Type</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Assigned</th>
+          <th>Date</th>
+          <th class="pe-4">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in all_tickets %}
+        <tr>
+          <td class="ps-4">
+            <span class="fw-bold text-primary small">{{ t.sl_no or '#'~t.id }}</span>
+            {% if t.escalation_level > 0 %}<span class="badge bg-danger ms-1">L{{ t.escalation_level }}</span>{% endif %}
+          </td>
+          <td class="small">{{ t.issue_reporter_name or '—' }}</td>
+          <td class="small">{{ t.district or '—' }}</td>
+          <td class="small">{{ t.issue_type or '—' }}</td>
+          <td><span class="badge bg-{{ t.priority_badge() }}">{{ t.priority }}</span></td>
+          <td><span class="badge bg-{{ t.status_badge() }}">{{ t.current_status }}</span></td>
+          <td class="small text-muted">{{ t.assignee.full_name if t.assignee else '—' }}</td>
+          <td class="small text-muted">{{ t.created_at.strftime('%b %d') }}</td>
+          <td class="pe-4">
+            <a href="{{ url_for('tickets.detail', ticket_id=t.id) }}"
+               class="btn btn-outline-primary btn-sm">View</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center py-4 text-muted">No tickets.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<style>
+.metric-icon {
+  width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+}
+.bg-orange { background-color: rgba(253,126,20,.1) !important; }
+.text-orange { color: #fd7e14 !important; }
+.bg-teal { background-color: rgba(32,201,151,.1) !important; }
+.text-teal { color: #20c997 !important; }
+.bg-purple { background-color: rgba(111,66,193,.1) !important; }
+.text-purple { color: #6f42c1 !important; }
+</style>
+{% endblock %}

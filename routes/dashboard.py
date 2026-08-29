@@ -11,7 +11,7 @@ dashboard = Blueprint("dashboard", __name__)
 ROLE_LEVEL = {
     Role.SUPER_ADMIN: 4,
     Role.ADMIN:       3,
-    Role.DSO:         2,
+    Role.AGENT:       2,
     Role.REPORTER:    1,
     Role.VIEWER:      0,
 }
@@ -22,7 +22,7 @@ ROLE_LEVEL = {
 def _region_filter(query, user):
     """
     Return (filtered_query, scope_label).
-    Super Admins see everything. Admins/DSOs are scoped to their location
+    Super Admins see everything. Admins/Agents are scoped to their location
     (primary country/admin1 on their User record + any UserRegionRole entries).
     Users with no location configured retain global access.
     """
@@ -82,8 +82,10 @@ def index():
 def main():
     if current_user.role == Role.SUPER_ADMIN:
         return _superadmin_view()
-    if current_user.role in (Role.ADMIN, Role.DSO):
+    if current_user.role == Role.ADMIN:
         return _admin_view()
+    if current_user.role == Role.AGENT:
+        return _admin_view(agent_mode=True)
     if current_user.role == Role.VIEWER:
         return _viewer_view()
     return _reporter_view()
@@ -144,14 +146,15 @@ def _reporter_view():
     )
 
 
-# ── Admin / DSO view ───────────────────────────────────────────────────────────
+# ── Admin / Agent view ─────────────────────────────────────────────────────────
 
-def _admin_view():
+def _admin_view(agent_mode=False):
     status_f     = request.args.get("status", "")
     priority_f   = request.args.get("priority", "")
     district_f   = request.args.get("district", "")
     search_f     = request.args.get("search", "")
-    assigned_f   = request.args.get("assigned", "")      # agent_id | mine | unassigned
+    # Agents land on their own queue by default; Admins/Super Admins see everything.
+    assigned_f   = request.args.get("assigned", "mine" if agent_mode else "")
     reporter_f   = request.args.get("reporter_id", "", type=str)   # reporter user_id
     country_f    = request.args.get("country_id", "", type=str)    # country_id
     resolved_by_f= request.args.get("resolved_by", "", type=str)   # agent user_id who resolved
@@ -214,27 +217,47 @@ def _admin_view():
         Ticket.escalation_level.desc(), Ticket.priority.desc(), Ticket.created_at.desc()
     ).all()
 
-    # Stats are also scoped to the user's region
-    all_q = base_q
-    stats = {
-        "total":       all_q.count(),
-        "open":        all_q.filter(Ticket.current_status == "Open").count(),
-        "in_progress": all_q.filter(Ticket.current_status == "In Progress").count(),
-        "critical":    all_q.filter(Ticket.priority.in_(["Critical", "Urgent"])).count(),
-        "unassigned":  all_q.filter(Ticket.assigned_to_id.is_(None),
-                                    Ticket.current_status.notin_(["Resolved", "Closed"])).count(),
-        "escalated":   all_q.filter(Ticket.escalation_level > 0).count(),
-        "resolved_today": all_q.filter(
-            Ticket.solved_status == True,
-            func.date(Ticket.solved_date) == func.date(func.now())
-        ).count(),
-    }
+    # Admins/Super Admins get region-wide stats; Agents get personal + pickup-queue stats.
+    if agent_mode:
+        mine_q = base_q.filter(Ticket.assigned_to_id == current_user.id)
+        my_level = current_user.agent_level or 1
+        stats = {
+            "total":       mine_q.count(),
+            "open":        mine_q.filter(Ticket.current_status == "Open").count(),
+            "in_progress": mine_q.filter(Ticket.current_status == "In Progress").count(),
+            "critical":    mine_q.filter(Ticket.priority.in_(["Critical", "Urgent"])).count(),
+            "unassigned":  base_q.filter(
+                Ticket.assigned_to_id.is_(None),
+                Ticket.current_status.notin_(["Resolved", "Closed"]),
+                Ticket.escalation_level == my_level - 1,
+            ).count(),
+            "escalated":   mine_q.filter(Ticket.escalation_level > 0).count(),
+            "resolved_today": mine_q.filter(
+                Ticket.solved_status == True,
+                func.date(Ticket.solved_date) == func.date(func.now())
+            ).count(),
+        }
+    else:
+        all_q = base_q
+        stats = {
+            "total":       all_q.count(),
+            "open":        all_q.filter(Ticket.current_status == "Open").count(),
+            "in_progress": all_q.filter(Ticket.current_status == "In Progress").count(),
+            "critical":    all_q.filter(Ticket.priority.in_(["Critical", "Urgent"])).count(),
+            "unassigned":  all_q.filter(Ticket.assigned_to_id.is_(None),
+                                        Ticket.current_status.notin_(["Resolved", "Closed"])).count(),
+            "escalated":   all_q.filter(Ticket.escalation_level > 0).count(),
+            "resolved_today": all_q.filter(
+                Ticket.solved_status == True,
+                func.date(Ticket.solved_date) == func.date(func.now())
+            ).count(),
+        }
 
     assignable = User.query.filter(
-        User.role.in_([Role.DSO, Role.ADMIN, Role.SUPER_ADMIN]), User.is_active == True
+        User.role.in_([Role.AGENT, Role.ADMIN, Role.SUPER_ADMIN]), User.is_active == True
     ).all()
     reporters = User.query.filter(
-        User.role.in_([Role.REPORTER, Role.DSO, Role.ADMIN]), User.is_active == True
+        User.role.in_([Role.REPORTER, Role.AGENT, Role.ADMIN]), User.is_active == True
     ).order_by(User.full_name).all()
     from models import Country
     countries = Country.query.filter_by(is_active=True).order_by(Country.name).all()
@@ -276,6 +299,7 @@ def _admin_view():
         reporters=reporters,
         countries=countries,
         tickets_json=tickets_json,
+        agent_mode=agent_mode,
     )
 
 
@@ -358,7 +382,7 @@ def _superadmin_view():
             func.sum(db.case((Ticket.solved_status == True, 1), else_=0)).label("resolved"),
         )
         .outerjoin(Ticket, Ticket.assigned_to_id == User.id)
-        .filter(User.role.in_([Role.ADMIN, Role.DSO]), User.is_active == True)
+        .filter(User.role.in_([Role.ADMIN, Role.AGENT]), User.is_active == True)
         .group_by(User.id)
         .all()
     )
@@ -520,6 +544,26 @@ def toggle_user(user_id):
     user.is_active = not user.is_active
     db.session.commit()
     flash(f"User '{user.username}' {'activated' if user.is_active else 'deactivated'}.", "success")
+    return redirect(url_for("dashboard.users"))
+
+
+@dashboard.route("/admin/users/<int:user_id>/agent-level", methods=["POST"])
+@login_required
+def set_agent_level(user_id):
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard.main"))
+    user = User.query.get_or_404(user_id)
+    if user.role != Role.AGENT:
+        flash("Only Agents have a tier level.", "warning")
+        return redirect(url_for("dashboard.users"))
+    level = request.form.get("agent_level", type=int)
+    if level not in (1, 2, 3, 4):
+        flash("Invalid tier — choose L1 through L4.", "warning")
+        return redirect(url_for("dashboard.users"))
+    user.agent_level = level
+    db.session.commit()
+    flash(f"{user.full_name} set to L{level}.", "success")
     return redirect(url_for("dashboard.users"))
 
 
@@ -768,7 +812,7 @@ def analytics():
         .outerjoin(Ticket, db.and_(Ticket.assigned_to_id == User.id,
                                    Ticket.created_at >= since, Ticket.created_at < until,
                                    *([Ticket.country_id == country_f] if country_f else [])))
-        .filter(User.role.in_([Role.ADMIN, Role.DSO]), User.is_active == True)
+        .filter(User.role.in_([Role.ADMIN, Role.AGENT]), User.is_active == True)
         .group_by(User.id).all()
     )
     agent_res_map = dict(
@@ -794,7 +838,7 @@ def analytics():
     # ── Filter dropdown data ───────────────────────────────────────────────────
     countries  = Country.query.filter_by(is_active=True).order_by(Country.name).all()
     assignable = User.query.filter(
-        User.role.in_([Role.DSO, Role.ADMIN, Role.SUPER_ADMIN]), User.is_active == True
+        User.role.in_([Role.AGENT, Role.ADMIN, Role.SUPER_ADMIN]), User.is_active == True
     ).order_by(User.full_name).all()
 
     return render_template(
@@ -819,6 +863,9 @@ def analytics():
         country_data=country_data, category_data=category_data,
         # Agent table
         agents=agents,
+        # Resolved display names for filter chips
+        country_name=next((c.name for c in countries if c.id == country_f), None),
+        agent_name=next((a.full_name for a in assignable if a.id == assigned_f), None),
         # Dropdowns
         countries=countries, assignable=assignable,
         statuses=["Open","In Progress","Pending","Resolved","Closed","Reopened"],

@@ -1,9 +1,12 @@
 """
 Multi-channel ticket intake:
-  - WhatsApp via Meta Cloud API  (POST /integrations/whatsapp)
-  - WhatsApp via Twilio          (POST /integrations/whatsapp/twilio)
   - Email inbound webhook        (POST /integrations/email-inbound)
   - Email IMAP poll              (GET  /integrations/email-poll?key=IMAP_POLL_KEY)
+
+WhatsApp (Meta Cloud API + Twilio) lives in routes/webhooks.py, along with the
+richer conversation flow (ongoing chat as ticket comments, STATUS lookup, CSAT
+survey) and the admin WhatsApp Inbox - that is the one production webhook URL;
+this module no longer duplicates it.
 """
 import imaplib
 import email as email_lib
@@ -16,7 +19,7 @@ from datetime import datetime
 import requests
 from flask import Blueprint, request, jsonify, current_app
 
-from models import db, Ticket, IssueCategory, WhatsAppSession, Country, SLAPolicy, CSATRating, TelegramSession
+from models import db, Ticket, IssueCategory, Country, SLAPolicy, CSATRating, TelegramSession
 from utils import log_history, notify_staff, create_notification, translate_text
 
 integrations = Blueprint("integrations", __name__, url_prefix="/integrations")
@@ -59,175 +62,6 @@ def _make_ticket_from_data(data: dict, channel: str, external_id: str = None) ->
         notif_type="info",
     )
     return ticket
-
-
-# ── WhatsApp — Meta Cloud API ──────────────────────────────────────────────────
-
-WA_STATES = {
-    "INIT": "Hi! 👋 I'm the Support Bot. I'll help you log a support ticket.\n\nReply with your *name*:",
-    "WAITING_NAME": "Got it! Now please share your *location* (district or area):",
-    "WAITING_LOCATION": "Thanks! Briefly describe *what issue* you're facing:",
-    "WAITING_ISSUE": "Almost done! Any more *details* (error messages, steps to reproduce)?",
-    "WAITING_DETAILS": None,  # handled in code
-}
-
-RESET_WORDS = {"reset", "start over", "restart", "new ticket", "hi", "hello"}
-
-
-def _wa_send_meta(phone: str, message: str):
-    """Send a WhatsApp message via Meta Cloud API."""
-    token = current_app.config.get("WA_ACCESS_TOKEN")
-    phone_id = current_app.config.get("WA_PHONE_NUMBER_ID")
-    if not token or not phone_id:
-        current_app.logger.warning("Meta WhatsApp not configured — skip send.")
-        return
-    try:
-        requests.post(
-            f"https://graph.facebook.com/v19.0/{phone_id}/messages",
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={
-                "messaging_product": "whatsapp",
-                "to": phone,
-                "type": "text",
-                "text": {"body": message},
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        current_app.logger.error(f"WhatsApp send error: {e}")
-
-
-def _wa_send_twilio(phone: str, message: str):
-    """Send a WhatsApp message via Twilio."""
-    sid = current_app.config.get("TWILIO_ACCOUNT_SID")
-    token = current_app.config.get("TWILIO_AUTH_TOKEN")
-    from_number = current_app.config.get("TWILIO_WA_FROM")
-    if not sid or not token:
-        current_app.logger.warning("Twilio not configured — skip send.")
-        return
-    try:
-        requests.post(
-            f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
-            auth=(sid, token),
-            data={
-                "From": from_number,
-                "To": f"whatsapp:{phone}" if not phone.startswith("whatsapp:") else phone,
-                "Body": message,
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        current_app.logger.error(f"Twilio send error: {e}")
-
-
-def _wa_send(phone: str, message: str):
-    provider = current_app.config.get("WA_PROVIDER", "meta")
-    if provider == "twilio":
-        _wa_send_twilio(phone, message)
-    else:
-        _wa_send_meta(phone, message)
-
-
-def _wa_handle_message(phone: str, text: str):
-    """State-machine conversation handler. Returns response text."""
-    text = text.strip()
-
-    session = WhatsAppSession.query.get(phone)
-    if not session:
-        session = WhatsAppSession(phone=phone, state="INIT", data={})
-        db.session.add(session)
-
-    if text.lower() in RESET_WORDS:
-        session.state = "INIT"
-        session.data = {}
-        db.session.commit()
-        return WA_STATES["INIT"]
-
-    state = session.state
-
-    if state == "INIT":
-        session.state = "WAITING_NAME"
-        db.session.commit()
-        return WA_STATES["INIT"]
-
-    if state == "WAITING_NAME":
-        session.data = {**session.data, "name": text}
-        session.state = "WAITING_LOCATION"
-        db.session.commit()
-        return WA_STATES["WAITING_NAME"]
-
-    if state == "WAITING_LOCATION":
-        session.data = {**session.data, "district": text}
-        session.state = "WAITING_ISSUE"
-        db.session.commit()
-        return WA_STATES["WAITING_LOCATION"]
-
-    if state == "WAITING_ISSUE":
-        session.data = {**session.data, "issue_type": text}
-        session.state = "WAITING_DETAILS"
-        db.session.commit()
-        return WA_STATES["WAITING_ISSUE"]
-
-    if state == "WAITING_DETAILS":
-        data = {**session.data, "details": text, "phone": phone}
-        ticket = _make_ticket_from_data(data, channel="whatsapp", external_id=f"wa_{phone}_{int(datetime.utcnow().timestamp())}")
-        db.session.commit()
-        session.state = "INIT"
-        session.data = {}
-        db.session.commit()
-        return (
-            f"✅ Your ticket *{ticket.sl_no}* has been logged!\n\n"
-            f"Issue: {data.get('issue_type')}\n"
-            f"We'll get back to you shortly. Type 'new ticket' to log another."
-        )
-
-    # Fallback
-    session.state = "INIT"
-    session.data = {}
-    db.session.commit()
-    return WA_STATES["INIT"]
-
-
-@integrations.route("/whatsapp", methods=["GET", "POST"])
-def whatsapp_meta():
-    """Meta Cloud API webhook."""
-    if request.method == "GET":
-        # Webhook verification
-        mode = request.args.get("hub.mode")
-        token = request.args.get("hub.verify_token")
-        challenge = request.args.get("hub.challenge")
-        if mode == "subscribe" and token == current_app.config.get("WA_VERIFY_TOKEN"):
-            return challenge, 200
-        return "Forbidden", 403
-
-    data = request.get_json(silent=True) or {}
-    try:
-        for entry in data.get("entry", []):
-            for change in entry.get("changes", []):
-                messages = change.get("value", {}).get("messages", [])
-                for msg in messages:
-                    phone = msg.get("from")
-                    text = msg.get("text", {}).get("body", "")
-                    if phone and text:
-                        reply = _wa_handle_message(phone, text)
-                        _wa_send_meta(phone, reply)
-    except Exception as e:
-        current_app.logger.error(f"WhatsApp webhook error: {e}")
-    return jsonify({"status": "ok"}), 200
-
-
-@integrations.route("/whatsapp/twilio", methods=["POST"])
-def whatsapp_twilio():
-    """Twilio WhatsApp webhook (TwiML or status callback)."""
-    phone = request.form.get("From", "").replace("whatsapp:", "")
-    text = request.form.get("Body", "")
-    if phone and text:
-        try:
-            reply = _wa_handle_message(phone, text)
-            _wa_send_twilio(phone, reply)
-        except Exception as e:
-            current_app.logger.error(f"Twilio webhook error: {e}")
-    return "", 204
 
 
 # ── Email Inbound — Webhook (SendGrid / Mailgun / Postmark) ───────────────────

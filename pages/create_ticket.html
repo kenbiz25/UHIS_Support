@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}New Ticket{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0"><i class="fas fa-plus-circle text-primary me-2"></i>Create New Ticket</h4>
+  <a href="{{ url_for('dashboard.main') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="fas fa-arrow-left me-1"></i>Dashboard
+  </a>
+</div>
+
+<form method="POST" action="{{ url_for('tickets.create') }}" enctype="multipart/form-data">
+  <!-- Hidden: location fields auto-filled from user account -->
+  {% for c in countries %}
+  {% if c.id == user_country_id %}
+  <input type="hidden" name="country_id" id="countryId" value="{{ c.id }}"
+         data-l1="{{ c.admin1_label }}" data-l2="{{ c.admin2_label }}" data-l3="{{ c.admin3_label }}">
+  {% endif %}
+  {% endfor %}
+  {% if not user_country_id %}<input type="hidden" name="country_id" id="countryId" value="">{% endif %}
+  <input type="hidden" name="admin1_id" id="admin1Id" value="{{ user_admin1_id or '' }}">
+  <input type="hidden" name="admin2_id" id="admin2Id" value="{{ user_admin2_id or '' }}">
+  <input type="hidden" name="admin3_id" id="admin3Id" value="{{ user_admin3_id or '' }}">
+
+  <!-- Hidden: reporter fields auto-filled from user account -->
+  <input type="hidden" name="contact" value="{{ current_user.contact or '' }}">
+  <input type="hidden" name="form_submit_email" value="{{ current_user.email or '' }}">
+  {% if current_user.role.value == 'Agent' %}
+  <input type="hidden" name="dso_name" value="{{ current_user.full_name }}">
+  {% endif %}
+
+  {% if not user_country_id or not current_user.contact %}
+  <!-- Only surface this when something is actually missing and needs the user's attention -->
+  <div class="alert alert-warning d-flex align-items-center gap-2 mb-4">
+    <i class="fas fa-exclamation-triangle"></i>
+    <div>
+      {% if not user_country_id %}No location set on your account.{% endif %}
+      {% if not current_user.contact %}No contact number on your account.{% endif %}
+      <a href="{{ url_for('auth.preferences') }}">Update your profile</a> so tickets are routed correctly.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Section: Issue Details -->
+  <div class="card shadow-sm border-0 rounded-3 mb-4">
+    <div class="card-header bg-warning text-dark rounded-top-3 py-2 px-4">
+      <i class="fas fa-bug me-2"></i>Issue Details
+    </div>
+    <div class="card-body p-4">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Issue Category <span class="text-danger">*</span></label>
+          <select name="category_id" id="categorySelect" class="form-select" required
+                  onchange="loadSubcategories(this.value)">
+            <option value="">-- Select Category --</option>
+            {% for cat in categories %}
+            <option value="{{ cat.id }}">{{ cat.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Sub-category <span class="text-danger">*</span></label>
+          <select name="subcategory_id" id="subcategorySelect" class="form-select" required disabled>
+            <option value="">-- Select category first --</option>
+          </select>
+        </div>
+        <div class="col-md-12">
+          <label class="form-label fw-semibold">Problem Details <span class="text-danger">*</span></label>
+          <textarea name="problem_details" class="form-control" rows="5" required
+                    placeholder="Describe the issue in detail — include steps to reproduce, error messages, and any other relevant context."></textarea>
+        </div>
+        <div class="col-md-8">
+          <label class="form-label fw-semibold">Problem Faced By</label>
+          <input type="text" name="problem_faced_by" class="form-control"
+                 placeholder="Who is affected? (e.g. CHW, Nurse, Doctor, Supervisor)">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Priority</label>
+          <select name="priority" class="form-select">
+            {% for p in priorities %}
+              <option value="{{ p }}" {% if p == 'Medium' %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section: Attachments & Notes -->
+  <div class="card shadow-sm border-0 rounded-3 mb-4">
+    <div class="card-header bg-secondary text-white rounded-top-3 py-2 px-4">
+      <i class="fas fa-paperclip me-2"></i>Attachments &amp; Notes
+    </div>
+    <div class="card-body p-4">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Screenshot / Photo</label>
+          <input type="file" name="screenshot" class="form-control"
+                 accept="image/png,image/jpeg,image/gif,image/webp" capture="environment">
+          <div class="form-text">PNG, JPG, GIF or WebP — max 16 MB. On a phone this can open your camera directly.</div>
+        </div>
+      </div>
+
+      <!-- Optional extras — collapsed by default on phone -->
+      <details class="mobile-collapsible mt-3" open>
+        <summary><i class="fas fa-ellipsis-h me-2"></i>More (optional)</summary>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Additional Attachments</label>
+            <input type="file" name="attachments" class="form-control" multiple
+                   accept=".png,.jpg,.jpeg,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv">
+            <div class="form-text">Multiple files allowed — max 16 MB each</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold">Comments / Notes</label>
+            <textarea name="comments" class="form-control" rows="3"
+                      placeholder="Any additional comments..."></textarea>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
+    <button type="submit" class="btn btn-primary fw-semibold px-4">
+      <i class="fas fa-paper-plane me-2"></i>Submit Ticket
+    </button>
+    <a href="{{ url_for('dashboard.main') }}" class="btn btn-outline-secondary">Cancel</a>
+  </div>
+</form>
+
+{% block extra_scripts %}
+<script>
+const SUB_API = "/integrations/api/subcategories";
+
+async function loadSubcategories(catId) {
+  const sel = document.getElementById('subcategorySelect');
+  sel.innerHTML = '<option value="">-- Loading --</option>'; sel.disabled = true;
+  if (!catId) { sel.innerHTML='<option value="">-- Select category first --</option>'; return; }
+  const data = await fetch(`${SUB_API}?category_id=${catId}`).then(r=>r.json());
+  sel.innerHTML = '<option value="">-- Select sub-category --</option>' + data.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  sel.disabled = false;
+}
+</script>
+{% endblock %}
+{% endblock %}

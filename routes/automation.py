@@ -44,7 +44,7 @@ def create():
         return redirect(url_for("automation.index"))
     tags = Tag.query.order_by(Tag.name).all()
     users = User.query.filter(
-        User.role.in_([Role.DSO, Role.ADMIN, Role.SUPER_ADMIN]),
+        User.role.in_([Role.AGENT, Role.ADMIN, Role.SUPER_ADMIN]),
         User.is_active == True,
     ).order_by(User.full_name).all()
     return render_template("admin/automation_edit.html", rule=None, tags=tags, users=users,
@@ -67,7 +67,7 @@ def edit(rule_id):
         return redirect(url_for("automation.index"))
     tags = Tag.query.order_by(Tag.name).all()
     users = User.query.filter(
-        User.role.in_([Role.DSO, Role.ADMIN, Role.SUPER_ADMIN]),
+        User.role.in_([Role.AGENT, Role.ADMIN, Role.SUPER_ADMIN]),
         User.is_active == True,
     ).order_by(User.full_name).all()
     return render_template("admin/automation_edit.html", rule=rule, tags=tags, users=users,

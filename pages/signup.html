@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}Create Account — Bangladesh UHIS{% endblock %}
+
+{% block auth_layout %}
+<div class="auth-split">
+
+  <!-- ── LEFT: Form panel ── -->
+  <div class="auth-form-side" style="width:55%; padding: 48px 64px; overflow-y:auto;">
+    <div class="auth-logo mb-4">
+      <span class="logo-icon"><i class="fas fa-ticket-alt"></i></span>
+      <span class="logo-text">Bangladesh UHIS</span>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show mb-3" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <h2 class="auth-title">Create your account</h2>
+    <p class="auth-subtitle">Fill in your details to get started</p>
+
+    <form method="POST" action="{{ url_for('auth.signup') }}">
+
+      <!-- Personal info -->
+      <p class="section-label">Personal Information</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          <label class="auth-label">Full Name <span class="text-danger">*</span></label>
+          <div class="auth-input-wrap">
+            <i class="fas fa-user auth-input-icon"></i>
+            <input type="text" name="full_name" class="auth-input" required
+                   placeholder="Your full name" autofocus>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="auth-label">Username <span class="text-danger">*</span></label>
+          <div class="auth-input-wrap">
+            <i class="fas fa-at auth-input-icon"></i>
+            <input type="text" name="username" class="auth-input" required
+                   placeholder="Choose a username" autocomplete="username">
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="auth-label">Email</label>
+          <div class="auth-input-wrap">
+            <i class="fas fa-envelope auth-input-icon"></i>
+            <input type="email" name="email" class="auth-input"
+                   placeholder="you@example.com">
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="auth-label">Phone / Contact</label>
+          <div class="auth-input-wrap">
+            <i class="fas fa-phone auth-input-icon"></i>
+            <input type="text" name="contact" class="auth-input"
+                   placeholder="+1 234 567 8900">
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="auth-label">Password <span class="text-danger">*</span></label>
+          <div class="auth-input-wrap">
+            <i class="fas fa-lock auth-input-icon"></i>
+            <input type="password" name="password" id="pwd" class="auth-input" required
+                   minlength="8" placeholder="Min 8 characters" autocomplete="new-password">
+            <button type="button" class="auth-eye-btn" onclick="togglePwd()" tabindex="-1">
+              <i class="fas fa-eye" id="eye-icon"></i>
+            </button>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="auth-label">Confirm Password <span class="text-danger">*</span></label>
+          <div class="auth-input-wrap">
+            <i class="fas fa-lock auth-input-icon"></i>
+            <input type="password" name="confirm_password" class="auth-input" required
+                   minlength="8" placeholder="Repeat password" autocomplete="new-password">
+          </div>
+        </div>
+      </div>
+
+      <!-- Location -->
+      <p class="section-label mt-2">Your Location <span class="text-muted fw-normal">(select down to the most specific level)</span></p>
+      <div class="row g-3 mb-4">
+        <div class="col-md-3">
+          <label class="auth-label">Country <span class="text-danger">*</span></label>
+          <select name="country_id" id="countrySelect" class="form-select form-select-sm" required
+                  onchange="loadLevel1(this.value)">
+            <option value="">-- Select --</option>
+            {% for c in countries %}
+            <option value="{{ c.id }}"
+                    data-l1="{{ c.admin1_label }}"
+                    data-l2="{{ c.admin2_label }}"
+                    data-l3="{{ c.admin3_label }}">
+              {{ c.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="auth-label" id="l1Label">Region</label>
+          <select name="admin1_id" id="admin1Select" class="form-select form-select-sm"
+                  onchange="loadLevel2(this.value)" disabled>
+            <option value="">-- Select country --</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="auth-label" id="l2Label">District</label>
+          <select name="admin2_id" id="admin2Select" class="form-select form-select-sm"
+                  onchange="loadLevel3(this.value)" disabled>
+            <option value="">-- Select above --</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="auth-label" id="l3Label">Sub-district</label>
+          <select name="admin3_id" id="admin3Select" class="form-select form-select-sm" disabled>
+            <option value="">-- Select above --</option>
+          </select>
+        </div>
+      </div>
+
+      <button type="submit" class="auth-btn">
+        <i class="fas fa-user-plus me-2"></i>Create Account
+      </button>
+    </form>
+
+    <p class="auth-signup-text mt-3">
+      Already have an account?
+      <a href="{{ url_for('auth.login') }}" class="auth-signup-link">Sign in</a>
+    </p>
+  </div>
+
+  <!-- ── RIGHT: Promo panel ── -->
+  <div class="auth-promo-side">
+    <div class="promo-illustration">
+      <div class="promo-center-icon">
+        <i class="fas fa-users"></i>
+      </div>
+      <div class="promo-card promo-card-1">
+        <i class="fas fa-globe text-info me-2"></i>
+        <span><strong>8</strong> Countries</span>
+      </div>
+      <div class="promo-card promo-card-2">
+        <i class="fas fa-map-marker-alt text-warning me-2"></i>
+        <span>Local-level tracking</span>
+      </div>
+      <div class="promo-card promo-card-3">
+        <i class="fas fa-ticket-alt text-success me-2"></i>
+        <span>Raise tickets instantly</span>
+      </div>
+      <div class="promo-card promo-card-4">
+        <i class="fas fa-bell text-danger me-2"></i>
+        <span>Real-time updates</span>
+      </div>
+    </div>
+    <div class="promo-text">
+      <h3 class="promo-heading">Join your support team</h3>
+      <ul class="promo-features">
+        <li><i class="fas fa-check-circle me-2"></i>Log tickets from anywhere</li>
+        <li><i class="fas fa-check-circle me-2"></i>Track issues in real time</li>
+        <li><i class="fas fa-check-circle me-2"></i>Get notified on every update</li>
+        <li><i class="fas fa-check-circle me-2"></i>Multi-country location support</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  .auth-split { display:flex; min-height:100vh; }
+  .auth-form-side {
+    width:55%; min-width:380px;
+    background:#fff;
+    display:flex; flex-direction:column; justify-content:center;
+    padding:48px 64px; overflow-y:auto;
+  }
+  .auth-promo-side {
+    flex:1;
+    background:linear-gradient(145deg,#1a2e6c 0%,#2563eb 60%,#3b82f6 100%);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:60px 40px; gap:40px; position:relative; overflow:hidden;
+  }
+  .auth-promo-side::before {
+    content:''; position:absolute; width:500px; height:500px; border-radius:50%;
+    background:rgba(255,255,255,.05); top:-120px; right:-120px;
+  }
+  .auth-promo-side::after {
+    content:''; position:absolute; width:300px; height:300px; border-radius:50%;
+    background:rgba(255,255,255,.05); bottom:-80px; left:-80px;
+  }
+  .auth-logo { display:flex; align-items:center; gap:10px; }
+  .logo-icon {
+    width:40px; height:40px; border-radius:10px; background:#2563eb; color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:1.1rem;
+  }
+  .logo-text { font-size:1.2rem; font-weight:700; color:#1e2a38; letter-spacing:-.3px; }
+  .auth-title { font-size:1.7rem; font-weight:700; color:#111827; margin-bottom:4px; }
+  .auth-subtitle { color:#6b7280; font-size:.9rem; margin-bottom:20px; }
+  .section-label { font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#6b7280; margin-bottom:8px; }
+  .auth-label { font-size:.82rem; font-weight:600; color:#374151; display:block; margin-bottom:4px; }
+  .auth-input-wrap { position:relative; }
+  .auth-input-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#9ca3af; font-size:.82rem; pointer-events:none; }
+  .auth-input {
+    width:100%; padding:10px 40px 10px 34px;
+    border:1.5px solid #e5e7eb; border-radius:8px; font-size:.9rem; color:#111827;
+    outline:none; transition:border-color .2s,box-shadow .2s; background:#f9fafb;
+  }
+  .auth-input:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.12); background:#fff; }
+  .auth-eye-btn { position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:#9ca3af; cursor:pointer; padding:4px; }
+  .auth-eye-btn:hover { color:#2563eb; }
+  .auth-btn {
+    width:100%; padding:12px; background:#2563eb; color:#fff; border:none;
+    border-radius:8px; font-size:1rem; font-weight:600; cursor:pointer;
+    transition:background .2s; margin-top:4px;
+  }
+  .auth-btn:hover { background:#1d4ed8; }
+  .auth-signup-text { text-align:center; font-size:.87rem; color:#6b7280; }
+  .auth-signup-link { color:#2563eb; font-weight:600; text-decoration:none; }
+  .auth-signup-link:hover { text-decoration:underline; }
+  .promo-illustration { position:relative; width:260px; height:260px; z-index:1; }
+  .promo-center-icon {
+    width:100px; height:100px; background:rgba(255,255,255,.15); border:2px solid rgba(255,255,255,.3);
+    border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:2.5rem; color:#fff;
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    animation:pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.3)} 50%{box-shadow:0 0 0 16px rgba(255,255,255,.0)} }
+  .promo-card {
+    position:absolute; background:rgba(255,255,255,.15); backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.25); border-radius:12px; padding:8px 14px;
+    color:#fff; font-size:.82rem; white-space:nowrap; display:flex; align-items:center;
+  }
+  .promo-card-1 { top:0; left:-30px; animation:float 4s ease-in-out infinite; }
+  .promo-card-2 { top:0; right:-30px; animation:float 4s ease-in-out infinite .8s; }
+  .promo-card-3 { bottom:20px; left:-40px; animation:float 4s ease-in-out infinite 1.6s; }
+  .promo-card-4 { bottom:20px; right:-40px; animation:float 4s ease-in-out infinite 2.4s; }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+  .promo-text { text-align:center; color:#fff; z-index:1; }
+  .promo-heading { font-size:1.4rem; font-weight:700; margin-bottom:20px; text-shadow:0 1px 3px rgba(0,0,0,.2); }
+  .promo-features { list-style:none; padding:0; margin:0; text-align:left; display:inline-block; }
+  .promo-features li { padding:6px 0; font-size:.9rem; opacity:.9; }
+  .promo-features .fa-check-circle { color:#86efac; }
+  @media (max-width:768px) {
+    .auth-split { flex-direction:column; }
+    .auth-form-side { width:100%; min-width:0; padding:32px 20px; }
+    .auth-promo-side { display:none; }
+  }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = "/integrations/api/admin-units";
+
+function togglePwd() {
+  const input = document.getElementById('pwd');
+  const icon  = document.getElementById('eye-icon');
+  if (input.type === 'password') {
+    input.type = 'text';
+    icon.classList.replace('fa-eye','fa-eye-slash');
+  } else {
+    input.type = 'password';
+    icon.classList.replace('fa-eye-slash','fa-eye');
+  }
+}
+
+async function loadLevel1(countryId) {
+  const sel = document.getElementById('countrySelect');
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('l1Label').textContent = opt.dataset.l1 || 'Region';
+  document.getElementById('l2Label').textContent = opt.dataset.l2 || 'District';
+  document.getElementById('l3Label').textContent = opt.dataset.l3 || 'Sub-district';
+
+  const a1 = document.getElementById('admin1Select');
+  const a2 = document.getElementById('admin2Select');
+  const a3 = document.getElementById('admin3Select');
+  [a1,a2,a3].forEach(s => { s.innerHTML='<option value="">-- Loading... --</option>'; s.disabled=true; });
+
+  if (!countryId) { a1.innerHTML='<option value="">-- Select country --</option>'; return; }
+  const data = await fetch(`${API}?level=1&country_id=${countryId}`).then(r=>r.json());
+  a1.innerHTML = '<option value="">-- Select --</option>' + data.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
+  a1.disabled = false;
+  a2.innerHTML='<option value="">-- Select above --</option>';
+  a3.innerHTML='<option value="">-- Select above --</option>';
+}
+
+async function loadLevel2(level1Id) {
+  const a2=document.getElementById('admin2Select');
+  const a3=document.getElementById('admin3Select');
+  [a2,a3].forEach(s=>{s.innerHTML='<option value="">-- Loading... --</option>';s.disabled=true;});
+  if (!level1Id) { a2.innerHTML='<option value="">-- Select above --</option>'; return; }
+  const cid = document.getElementById('countrySelect').value;
+  const data = await fetch(`${API}?level=2&parent_id=${level1Id}&country_id=${cid}`).then(r=>r.json());
+  a2.innerHTML = '<option value="">-- Select --</option>' + data.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
+  a2.disabled=false;
+  a3.innerHTML='<option value="">-- Select above --</option>';
+}
+
+async function loadLevel3(level2Id) {
+  const a3=document.getElementById('admin3Select');
+  a3.innerHTML='<option value="">-- Loading... --</option>'; a3.disabled=true;
+  if (!level2Id) { a3.innerHTML='<option value="">-- Select above --</option>'; return; }
+  const cid=document.getElementById('countrySelect').value;
+  const data=await fetch(`${API}?level=3&parent_id=${level2Id}&country_id=${cid}`).then(r=>r.json());
+  a3.innerHTML = data.length
+    ? '<option value="">-- Select --</option>' + data.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')
+    : '<option value="">-- None available --</option>';
+  if (data.length) a3.disabled=false;
+}
+</script>
+{% endblock %}

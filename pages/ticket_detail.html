@@ -1,0 +1,869 @@
+{% extends "base.html" %}
+{% block title %}{{ ticket.sl_no }} — Ticket Detail{% endblock %}
+
+{% block content %}
+{% if lock_warning %}
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
+  <i class="fas fa-exclamation-triangle"></i>
+  <strong>Heads up:</strong> <strong>{{ lock_warning.full_name }}</strong> is currently viewing this ticket. Saving may overwrite their changes.
+</div>
+{% endif %}
+
+{% if current_user.can_update_tickets() %}
+<div class="alert border-0 d-flex align-items-start gap-2 py-2 mb-3"
+     style="background:rgba(var(--bs-info-rgb),.07);border-left:3px solid var(--bs-info)!important;border-radius:6px;">
+  <i class="fas fa-eye text-info mt-1 flex-shrink-0"></i>
+  <div class="small">
+    <span class="fw-semibold">Visible to:</span>
+    <span class="ms-1">Super Admin &amp; Admins (all regions)</span>
+    {% if ticket.country_id %}
+      · <span class="text-primary">Agents in {{ ticket.ticket_country.name if ticket.ticket_country else '' }}</span>
+      {% if ticket.admin1_id %}
+        / <span class="text-primary">{{ ticket.ticket_admin1.name if ticket.ticket_admin1 else '' }}</span>
+      {% endif %}
+    {% endif %}
+    · <span class="text-secondary">Reporter ({{ ticket.issue_reporter_name or 'submitter' }})</span>
+    {% if ticket.sla_breached %}
+      <span class="badge bg-danger ms-2">SLA Breached — escalation required</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+      <h4 class="fw-bold mb-0">{{ ticket.sl_no or 'Ticket #' ~ ticket.id }}</h4>
+      <span class="badge bg-{{ ticket.status_badge() }} fs-6">{{ ticket.current_status }}</span>
+      <span class="badge bg-{{ ticket.priority_badge() }} fs-6">{{ ticket.priority }}</span>
+      <span class="badge {{ 'bg-danger' if ticket.escalation_level > 0 else 'bg-secondary' }} fs-6" title="Required agent tier">
+        {% if ticket.escalation_level > 0 %}<i class="fas fa-arrow-up me-1"></i>Escalated {% endif %}{{ ticket.level_label() }}
+      </span>
+      {% if ticket.solved_status %}
+        <span class="badge bg-success fs-6"><i class="fas fa-check me-1"></i>Resolved</span>
+      {% endif %}
+    </div>
+    <p class="text-muted small mb-0">
+      Submitted by <strong>{{ ticket.issue_reporter_name }}</strong>
+      ({{ ticket.issue_reported_by_role }}) &mdash; {{ ticket.created_at.strftime('%B %d, %Y at %H:%M') if ticket.created_at }}
+    </p>
+    <!-- Tags -->
+    {% if ticket.tags.all() %}
+    <div class="mt-2 d-flex flex-wrap gap-1">
+      {% for tag in ticket.tags %}
+      <span class="badge bg-{{ tag.color }}"><i class="fas fa-tag me-1"></i>{{ tag.name }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <!-- SLA badge -->
+    {% if ticket.due_date and ticket.current_status not in ('Resolved', 'Closed') %}
+    {% set sla_s = ticket.sla_status() %}
+    <div class="mt-2">
+      <span class="badge bg-{{ 'danger' if sla_s == 'breached' else 'warning' if sla_s == 'warning' else 'success' }}">
+        <i class="fas fa-clock me-1"></i>SLA: {{ ticket.sla_remaining_str() }}
+      </span>
+    </div>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('dashboard.main') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left me-1"></i>Back
+    </a>
+    <!-- Watch / Unwatch -->
+    <form method="POST" action="{{ url_for('admin_tools.watch_ticket', ticket_id=ticket.id) }}">
+      <button class="btn btn-{{ 'warning' if is_watching else 'outline-secondary' }} btn-sm" title="{{ 'Unwatch' if is_watching else 'Watch' }}">
+        <i class="fas fa-{{ 'eye-slash' if is_watching else 'eye' }} me-1"></i>{{ 'Watching' if is_watching else 'Watch' }}
+      </button>
+    </form>
+    {% if can_update %}
+    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#duplicateModal"
+            title="Duplicate ticket">
+      <i class="fas fa-copy me-1"></i>Duplicate
+    </button>
+    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#mergeModal"
+            title="Merge into another ticket">
+      <i class="fas fa-code-merge me-1"></i>Merge
+    </button>
+    {% endif %}
+    {% if is_admin %}
+    <form method="POST" action="{{ url_for('tickets.delete', ticket_id=ticket.id) }}"
+          onsubmit="return confirm('Permanently delete this ticket?')">
+      <button class="btn btn-outline-danger btn-sm"><i class="fas fa-trash me-1"></i>Delete</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Duplicate modal -->
+<div class="modal fade" id="duplicateModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title">Duplicate Ticket</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted">Creates a new ticket copying all details of {{ ticket.sl_no }}.</p>
+      </div>
+      <div class="modal-footer">
+        <form method="POST" action="{{ url_for('tickets.duplicate', ticket_id=ticket.id) }}">
+          <button class="btn btn-primary btn-sm"><i class="fas fa-copy me-1"></i>Duplicate</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Merge modal -->
+<div class="modal fade" id="mergeModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title">Merge Into Another Ticket</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <form method="POST" action="{{ url_for('tickets.merge', ticket_id=ticket.id) }}">
+        <div class="modal-body">
+          <p class="small text-muted">This ticket will be closed and its comments/attachments moved to the target.</p>
+          <label class="form-label small fw-semibold">Target Ticket SL No</label>
+          <input type="text" name="target_sl" class="form-control form-control-sm"
+                 placeholder="e.g. TKT-20260530-0002" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-warning btn-sm"><i class="fas fa-code-merge me-1"></i>Merge</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- ── LEFT COLUMN ── -->
+  <div class="col-lg-7">
+
+    <!-- Info card -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4">
+      <div class="card-header bg-white border-bottom py-2 px-4">
+        <ul class="nav nav-tabs card-header-tabs" id="ticketTabs">
+          <li class="nav-item">
+            <a class="nav-link active fw-semibold" href="#info" data-bs-toggle="tab">
+              <i class="fas fa-info-circle me-1"></i>Details
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link fw-semibold" href="#comments" data-bs-toggle="tab" id="commentTab">
+              <i class="fas fa-comments me-1"></i>Comments
+              <span class="badge bg-secondary ms-1">{{ comments|length }}</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link fw-semibold" href="#history" data-bs-toggle="tab">
+              <i class="fas fa-history me-1"></i>Activity
+              <span class="badge bg-secondary ms-1">{{ history|length }}</span>
+            </a>
+          </li>
+          {% if can_update %}
+          <li class="nav-item">
+            <a class="nav-link fw-semibold" href="#links" data-bs-toggle="tab">
+              <i class="fas fa-link me-1"></i>Links
+              <span class="badge bg-secondary ms-1">{{ (outgoing_links|length) + (incoming_links|length) }}</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link fw-semibold" href="#time" data-bs-toggle="tab" id="timeTab">
+              <i class="fas fa-stopwatch me-1"></i>Time
+              {% if time_total %}<span class="badge bg-secondary ms-1">{{ time_total }}m</span>{% endif %}
+            </a>
+          </li>
+          {% if custom_fields %}
+          <li class="nav-item">
+            <a class="nav-link fw-semibold" href="#custom" data-bs-toggle="tab">
+              <i class="fas fa-sliders-h me-1"></i>Fields
+            </a>
+          </li>
+          {% endif %}
+          <li class="nav-item">
+            <a class="nav-link fw-semibold" href="#calls" data-bs-toggle="tab">
+              <i class="fas fa-phone me-1"></i>Calls
+              {% if call_logs %}<span class="badge bg-secondary ms-1">{{ call_logs|length }}</span>{% endif %}
+            </a>
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+      <div class="tab-content card-body p-4">
+
+        <!-- Details tab -->
+        <div class="tab-pane fade show active" id="info">
+          <div class="row g-0">
+            <div class="col-md-6">
+              <h6 class="text-muted fw-semibold small text-uppercase mb-3">Location</h6>
+              <dl class="row small mb-4">
+                <dt class="col-5 text-muted">District</dt><dd class="col-7">{{ ticket.district or '—' }}</dd>
+                <dt class="col-5 text-muted">Upazila</dt><dd class="col-7">{{ ticket.upazila or '—' }}</dd>
+              </dl>
+              <h6 class="text-muted fw-semibold small text-uppercase mb-3">Reporter</h6>
+              <dl class="row small mb-4">
+                <dt class="col-5 text-muted">Name</dt><dd class="col-7">{{ ticket.issue_reporter_name or '—' }}</dd>
+                <dt class="col-5 text-muted">Role</dt><dd class="col-7">{{ ticket.issue_reported_by_role or '—' }}</dd>
+                <dt class="col-5 text-muted">Contact</dt><dd class="col-7">{{ ticket.issue_reporter_contact or '—' }}</dd>
+                <dt class="col-5 text-muted">Email</dt><dd class="col-7">{{ ticket.form_submit_email or '—' }}</dd>
+                <dt class="col-5 text-muted">DSO</dt><dd class="col-7">{{ ticket.dso_name or '—' }}</dd>
+                <dt class="col-5 text-muted">Reported</dt><dd class="col-7">{{ ticket.reporting_date.strftime('%Y-%m-%d') if ticket.reporting_date else '—' }}</dd>
+                <dt class="col-5 text-muted">Issue Since</dt><dd class="col-7">{{ ticket.issue_start_date.strftime('%Y-%m-%d') if ticket.issue_start_date else '—' }}</dd>
+              </dl>
+            </div>
+            <div class="col-md-6">
+              <h6 class="text-muted fw-semibold small text-uppercase mb-3">Issue Details</h6>
+              <dl class="row small mb-4">
+                <dt class="col-5 text-muted">Platform</dt><dd class="col-7">{{ ticket.spice_platform or '—' }}</dd>
+                <dt class="col-5 text-muted">Issue Type</dt><dd class="col-7">{{ ticket.issue_type or '—' }}</dd>
+                <dt class="col-5 text-muted">Product</dt><dd class="col-7">{{ ticket.product or '—' }}</dd>
+                <dt class="col-5 text-muted">App Version</dt><dd class="col-7">{{ ticket.app_version or '—' }}</dd>
+                <dt class="col-5 text-muted">Faced By</dt><dd class="col-7">{{ ticket.problem_faced_by or '—' }}</dd>
+                <dt class="col-5 text-muted">App User</dt><dd class="col-7">{{ ticket.app_user_information or '—' }}</dd>
+                <dt class="col-5 text-muted">Assigned To</dt>
+                <dd class="col-7">{{ ticket.assignee.full_name if ticket.assignee else '—' }}</dd>
+              </dl>
+            </div>
+          </div>
+          <hr class="my-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="text-muted small fw-semibold text-uppercase mb-0">Problem Description</h6>
+            {% if can_see_internal %}
+            <div class="d-flex gap-1 align-items-center">
+              <select id="translateLang" class="form-select form-select-sm" style="width:90px;font-size:.75rem;">
+                <option value="en">EN</option>
+                <option value="fr">FR</option>
+                <option value="es">ES</option>
+                <option value="ar">AR</option>
+                <option value="bn">BN</option>
+                <option value="sw">SW</option>
+              </select>
+              <button onclick="translateDesc()" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                      title="Translate">
+                <i class="fas fa-language"></i>
+              </button>
+            </div>
+            {% endif %}
+          </div>
+          <p class="mb-0" id="problemDesc">{{ ticket.problem_details or '—' }}</p>
+          <p class="mb-0 text-info fst-italic small d-none" id="translatedDesc"></p>
+          {% if ticket.comments %}
+            <hr class="my-3">
+            <h6 class="text-muted small fw-semibold text-uppercase mb-2">Submission Notes</h6>
+            <p class="mb-0 text-muted">{{ ticket.comments }}</p>
+          {% endif %}
+          {% if ticket.screenshot_path %}
+            <hr class="my-3">
+            <h6 class="text-muted small fw-semibold text-uppercase mb-2">Screenshot</h6>
+            <a href="{{ url_for('static', filename=ticket.screenshot_path) }}" target="_blank">
+              <img src="{{ url_for('static', filename=ticket.screenshot_path) }}"
+                   class="img-fluid rounded shadow-sm" style="max-height:300px;" alt="Screenshot">
+            </a>
+          {% endif %}
+          {% if ticket.attachments %}
+            <hr class="my-3">
+            <h6 class="text-muted small fw-semibold text-uppercase mb-2">Attachments</h6>
+            <div class="d-flex flex-wrap gap-2">
+              {% for att in ticket.attachments %}
+              <a href="{{ url_for('static', filename=att.filename) }}" target="_blank"
+                 class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-paperclip me-1"></i>{{ att.original_name or att.filename.split('/')[-1] }}
+              </a>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if ticket.solved_status %}
+            <hr class="my-3">
+            <div class="alert alert-success mb-0">
+              <i class="fas fa-check-circle me-2"></i>
+              <strong>Resolved</strong> by {{ ticket.solved_by }} on
+              {{ ticket.solved_date.strftime('%Y-%m-%d %H:%M') if ticket.solved_date }}.
+              {% if ticket.remarks %}<br><span class="small">{{ ticket.remarks }}</span>{% endif %}
+            </div>
+            {% if ticket.csat_rating and ticket.csat_rating.rating and can_see_internal %}
+            <div class="alert alert-info mt-2 mb-0">
+              <i class="fas fa-star me-1 text-warning"></i>
+              CSAT Rating: <strong>{{ ticket.csat_rating.rating }}/5</strong>
+              {% if ticket.csat_rating.feedback %}
+              — <em class="small">{{ ticket.csat_rating.feedback }}</em>
+              {% endif %}
+            </div>
+            {% endif %}
+          {% endif %}
+        </div>
+
+        <!-- Comments tab -->
+        <div class="tab-pane fade" id="comments">
+          <div class="d-flex flex-column gap-3 mb-4" id="commentsList">
+            {% for c in comments %}
+            <div class="comment-item {{ 'internal-note' if c.is_internal else '' }}">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <div class="comment-avatar">{{ c.author.full_name[0]|upper }}</div>
+                <strong class="small">{{ c.author.full_name }}</strong>
+                <span class="badge bg-secondary" style="font-size:.68rem;">{{ c.author.role.value }}</span>
+                {% if c.is_internal %}
+                  <span class="badge bg-warning text-dark" style="font-size:.68rem;">Internal Note</span>
+                {% endif %}
+                <small class="text-muted ms-auto">{{ c.created_at.strftime('%b %d, %Y %H:%M') }}</small>
+              </div>
+              <div class="comment-body">{{ c.body }}</div>
+            </div>
+            {% else %}
+            <p class="text-muted text-center py-3 mb-0">No comments yet. Be the first to comment.</p>
+            {% endfor %}
+          </div>
+
+          <!-- Add comment form -->
+          <div class="border-top pt-4">
+            <h6 class="fw-semibold mb-3">Add Comment</h6>
+            {% if can_see_internal and canned_responses %}
+            <div class="mb-2">
+              <select id="cannedPicker" class="form-select form-select-sm" onchange="insertCanned(this)">
+                <option value="">— Insert canned response —</option>
+                {% set ns = namespace(cat='') %}
+                {% for r in canned_responses %}
+                  {% if r.category != ns.cat %}{% set ns.cat = r.category %}<option disabled>── {{ r.category }} ──</option>{% endif %}
+                  <option value="{{ r.body | e }}">{{ r.title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% endif %}
+            <form method="POST" action="{{ url_for('tickets.add_comment', ticket_id=ticket.id) }}"
+                  enctype="multipart/form-data">
+              <div class="mb-3">
+                <textarea name="body" id="commentBody" class="form-control" rows="3"
+                          placeholder="Write your comment or update..." required></textarea>
+              </div>
+              <div class="mb-3">
+                <label class="form-label small text-muted">Attach file (optional)</label>
+                <input type="file" name="attachment" class="form-control form-control-sm"
+                       accept=".png,.jpg,.jpeg,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv">
+              </div>
+              {% if can_see_internal %}
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="is_internal" id="internalCheck">
+                <label class="form-check-label small text-warning fw-semibold" for="internalCheck">
+                  <i class="fas fa-lock me-1"></i>Internal note (only visible to admins/Agents)
+                </label>
+              </div>
+              {% endif %}
+              <button type="submit" class="btn btn-primary btn-sm fw-semibold">
+                <i class="fas fa-paper-plane me-1"></i>Post Comment
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Activity / History tab -->
+        <div class="tab-pane fade" id="history">
+          {% if history %}
+          <div class="timeline">
+            {% for h in history %}
+            <div class="timeline-item">
+              <div class="timeline-dot bg-{{ 'success' if 'resolved' in h.action.lower() else 'danger' if 'critical' in h.action.lower() or 'escalat' in h.action.lower() else 'primary' }}"></div>
+              <div class="timeline-content">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>
+                    <span class="fw-semibold small">{{ h.action }}</span>
+                    {% if h.old_value and h.new_value %}
+                    <span class="text-muted small ms-1">
+                      <del class="text-danger">{{ h.old_value }}</del>
+                      &rarr; <span class="text-success">{{ h.new_value }}</span>
+                    </span>
+                    {% endif %}
+                  </div>
+                  <small class="text-muted text-nowrap ms-3">
+                    {{ h.created_at.strftime('%b %d %H:%M') }}
+                  </small>
+                </div>
+                <div class="text-muted small mt-1">
+                  <i class="fas fa-user me-1"></i>
+                  {{ h.changed_by.full_name if h.changed_by else 'System' }}
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-muted text-center py-3 mb-0">No activity recorded yet.</p>
+          {% endif %}
+        </div>
+
+        <!-- Links tab -->
+        {% if can_update %}
+        <div class="tab-pane fade" id="links">
+          <!-- Existing links -->
+          {% if outgoing_links or incoming_links %}
+          <div class="mb-4">
+            {% for lnk in outgoing_links %}
+            <div class="d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded">
+              <span class="badge bg-secondary">{{ lnk.link_type }}</span>
+              <a href="{{ url_for('tickets.detail', ticket_id=lnk.target_id) }}" class="fw-semibold small">
+                {{ lnk.target.sl_no }}
+              </a>
+              <span class="text-muted small flex-grow-1">{{ lnk.target.issue_type or '' }}</span>
+              <form method="POST" action="{{ url_for('tickets.delete_link', link_id=lnk.id) }}" class="d-inline">
+                <button class="btn btn-outline-danger btn-sm py-0 px-2"><i class="fas fa-times"></i></button>
+              </form>
+            </div>
+            {% endfor %}
+            {% for lnk in incoming_links %}
+            <div class="d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded">
+              <span class="badge bg-info text-dark">← {{ lnk.link_type }}</span>
+              <a href="{{ url_for('tickets.detail', ticket_id=lnk.source_id) }}" class="fw-semibold small">
+                {{ lnk.source.sl_no }}
+              </a>
+              <span class="text-muted small flex-grow-1">{{ lnk.source.issue_type or '' }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% if ticket.parent %}
+          <div class="alert alert-info py-2 small mb-3">
+            <i class="fas fa-sitemap me-1"></i>Child of
+            <a href="{{ url_for('tickets.detail', ticket_id=ticket.parent.id) }}" class="fw-semibold">
+              {{ ticket.parent.sl_no }}
+            </a>
+          </div>
+          {% endif %}
+          {% if ticket.children %}
+          <div class="mb-3">
+            <h6 class="text-muted small fw-semibold text-uppercase mb-2">Child Tickets</h6>
+            {% for child in ticket.children %}
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <a href="{{ url_for('tickets.detail', ticket_id=child.id) }}" class="small">{{ child.sl_no }}</a>
+              <span class="badge bg-{{ child.status_badge() }}">{{ child.current_status }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <!-- Add link -->
+          <h6 class="fw-semibold small mb-2">Add Link</h6>
+          <form method="POST" action="{{ url_for('tickets.add_link', ticket_id=ticket.id) }}"
+                class="d-flex gap-2 align-items-end flex-wrap">
+            <div>
+              <label class="form-label small text-muted mb-1">Ticket SL</label>
+              <input type="text" name="link_sl" class="form-control form-control-sm"
+                     placeholder="TKT-YYYYMMDD-XXXX" required style="width:200px;">
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Type</label>
+              <select name="link_type" class="form-select form-select-sm">
+                <option value="related">Related</option>
+                <option value="blocks">Blocks</option>
+                <option value="duplicates">Duplicates</option>
+              </select>
+            </div>
+            <button class="btn btn-primary btn-sm"><i class="fas fa-link me-1"></i>Link</button>
+          </form>
+        </div>
+
+        <!-- Time tracking tab -->
+        <div class="tab-pane fade" id="time">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="fw-semibold mb-0">Time Logged</h6>
+            {% if time_total %}
+            <span class="badge bg-primary fs-6">Total: {{ (time_total // 60) }}h {{ (time_total % 60) }}m</span>
+            {% endif %}
+          </div>
+          {% if time_entries %}
+          <div class="table-responsive mb-4">
+            <table class="table table-sm align-middle">
+              <thead class="table-light"><tr>
+                <th>Agent</th><th>Time</th><th>Note</th><th>Date</th><th></th>
+              </tr></thead>
+              <tbody>
+                {% for e in time_entries %}
+                <tr>
+                  <td class="small">{{ e.user.full_name }}</td>
+                  <td><span class="badge bg-secondary">{{ e.minutes }}m</span></td>
+                  <td class="small text-muted">{{ e.note or '—' }}</td>
+                  <td class="small text-muted">{{ e.logged_at.strftime('%b %d %H:%M') }}</td>
+                  <td>
+                    {% if e.user_id == current_user.id or is_admin %}
+                    <form method="POST" action="{{ url_for('tickets.delete_time', entry_id=e.id) }}"
+                          class="d-inline">
+                      <button class="btn btn-outline-danger btn-sm py-0 px-1"><i class="fas fa-times"></i></button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+          <h6 class="fw-semibold small mb-2">Log Time</h6>
+          <form method="POST" action="{{ url_for('tickets.log_time', ticket_id=ticket.id) }}"
+                class="d-flex gap-2 align-items-end flex-wrap">
+            <div>
+              <label class="form-label small text-muted mb-1">Minutes <span class="text-danger">*</span></label>
+              <input type="number" name="minutes" class="form-control form-control-sm"
+                     min="1" max="1440" placeholder="30" required style="width:90px;">
+            </div>
+            <div class="flex-grow-1">
+              <label class="form-label small text-muted mb-1">Note</label>
+              <input type="text" name="note" class="form-control form-control-sm"
+                     placeholder="What did you work on?">
+            </div>
+            <button class="btn btn-primary btn-sm"><i class="fas fa-plus me-1"></i>Log</button>
+          </form>
+        </div>
+
+        <!-- Custom fields tab -->
+        {% if custom_fields %}
+        <div class="tab-pane fade" id="custom">
+          <form method="POST" action="{{ url_for('admin_tools.update_ticket_custom_fields', ticket_id=ticket.id) }}">
+            {% for field in custom_fields %}
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">
+                {{ field.label }}
+                {% if field.is_required %}<span class="text-danger">*</span>{% endif %}
+              </label>
+              {% set val = field_values.get(field.id, '') %}
+              {% if field.field_type == 'textarea' %}
+              <textarea name="cf_{{ field.id }}" class="form-control form-control-sm" rows="3"
+                        {% if field.is_required %}required{% endif %}>{{ val }}</textarea>
+              {% elif field.field_type == 'dropdown' %}
+              <select name="cf_{{ field.id }}" class="form-select form-select-sm"
+                      {% if field.is_required %}required{% endif %}>
+                <option value="">— Select —</option>
+                {% for opt in field.options %}
+                <option value="{{ opt }}" {% if val == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+              {% elif field.field_type == 'checkbox' %}
+              <select name="cf_{{ field.id }}" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option value="yes" {% if val == 'yes' %}selected{% endif %}>Yes</option>
+                <option value="no" {% if val == 'no' %}selected{% endif %}>No</option>
+              </select>
+              {% elif field.field_type == 'date' %}
+              <input type="date" name="cf_{{ field.id }}" class="form-control form-control-sm"
+                     value="{{ val }}" {% if field.is_required %}required{% endif %}>
+              {% elif field.field_type == 'number' %}
+              <input type="number" name="cf_{{ field.id }}" class="form-control form-control-sm"
+                     value="{{ val }}" {% if field.is_required %}required{% endif %}>
+              {% else %}
+              <input type="text" name="cf_{{ field.id }}" class="form-control form-control-sm"
+                     value="{{ val }}" {% if field.is_required %}required{% endif %}>
+              {% endif %}
+            </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-primary btn-sm fw-semibold">
+              <i class="fas fa-save me-1"></i>Save Fields
+            </button>
+          </form>
+        </div>
+        {% endif %}
+
+        <!-- Call log tab -->
+        <div class="tab-pane fade" id="calls">
+          {% if call_logs %}
+          <div class="table-responsive mb-4">
+            <table class="table table-sm align-middle">
+              <thead class="table-light"><tr>
+                <th>Agent</th><th>Caller</th><th>Dir.</th><th>Duration</th><th>Outcome</th><th>Notes</th><th>Date</th><th></th>
+              </tr></thead>
+              <tbody>
+                {% for c in call_logs %}
+                <tr>
+                  <td class="small">{{ c.agent.full_name }}</td>
+                  <td class="small">
+                    {{ c.caller_name or '—' }}
+                    {% if c.caller_phone %}<div class="text-muted" style="font-size:.72rem;">{{ c.caller_phone }}</div>{% endif %}
+                  </td>
+                  <td><span class="badge bg-{{ 'info' if c.direction == 'inbound' else 'secondary' }} text-dark">{{ c.direction }}</span></td>
+                  <td class="small">{{ c.duration_minutes }}m</td>
+                  <td><span class="badge bg-{{ 'success' if c.outcome == 'resolved' else 'warning' if c.outcome == 'follow_up' else 'secondary' }} text-dark">{{ c.outcome | replace('_',' ') }}</span></td>
+                  <td class="small text-muted" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ c.notes or '—' }}</td>
+                  <td class="small text-muted">{{ c.logged_at.strftime('%b %d %H:%M') }}</td>
+                  <td>
+                    {% if c.agent_id == current_user.id or is_admin %}
+                    <form method="POST" action="{{ url_for('tickets.delete_call', call_id=c.id) }}" class="d-inline">
+                      <button class="btn btn-outline-danger btn-sm py-0 px-1"><i class="fas fa-times"></i></button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+          {% if can_update %}
+          <h6 class="fw-semibold small mb-2">Log a Call</h6>
+          <form method="POST" action="{{ url_for('tickets.log_call', ticket_id=ticket.id) }}"
+                class="row g-2">
+            <div class="col-md-3">
+              <input type="text" name="caller_name" class="form-control form-control-sm" placeholder="Caller name">
+            </div>
+            <div class="col-md-2">
+              <input type="text" name="caller_phone" class="form-control form-control-sm" placeholder="Phone number">
+            </div>
+            <div class="col-md-2">
+              <select name="direction" class="form-select form-select-sm">
+                <option value="inbound">Inbound</option>
+                <option value="outbound">Outbound</option>
+              </select>
+            </div>
+            <div class="col-md-1">
+              <input type="number" name="duration_minutes" class="form-control form-control-sm"
+                     placeholder="Min" min="0" value="0">
+            </div>
+            <div class="col-md-2">
+              <select name="outcome" class="form-select form-select-sm">
+                <option value="resolved">Resolved</option>
+                <option value="follow_up">Follow-up needed</option>
+                <option value="no_answer">No answer</option>
+                <option value="escalated">Escalated</option>
+              </select>
+            </div>
+            <div class="col-md-1">
+              <button class="btn btn-primary btn-sm w-100"><i class="fas fa-plus me-1"></i>Log</button>
+            </div>
+            <div class="col-12">
+              <input type="text" name="notes" class="form-control form-control-sm" placeholder="Notes (optional)">
+            </div>
+          </form>
+          {% endif %}
+        </div>
+
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT COLUMN ── -->
+  <div class="col-lg-5">
+
+    <!-- Progress tracker -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4">
+      <div class="card-header bg-white py-2 px-4 fw-semibold border-bottom">
+        <i class="fas fa-signs-post text-info me-2"></i>Progress
+      </div>
+      <div class="card-body p-4">
+        {% set steps = ['Open', 'In Progress', 'Pending', 'Resolved', 'Closed'] %}
+        {% set step_icons = {'Open':'folder-open','In Progress':'spinner','Pending':'clock','Resolved':'check-circle','Closed':'lock'} %}
+        {% set current_idx = steps.index(ticket.current_status) if ticket.current_status in steps else 0 %}
+        <div class="progress-steps">
+          {% for step in steps %}
+          {% set i = loop.index0 %}
+          <div class="progress-step {{ 'done' if i < current_idx else 'current' if i == current_idx else 'pending' }}">
+            <div class="step-circle">
+              <i class="fas fa-{{ step_icons[step] }}"></i>
+            </div>
+            <div class="step-label small">{{ step }}</div>
+          </div>
+          {% if not loop.last %}
+          <div class="step-connector {{ 'active' if i < current_idx else '' }}"></div>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Tags management (admins only) -->
+    {% if can_update and all_tags %}
+    <div class="card border-0 shadow-sm rounded-3 mb-4">
+      <div class="card-header bg-white py-2 px-4 fw-semibold border-bottom">
+        <i class="fas fa-tags text-secondary me-2"></i>Tags
+      </div>
+      <div class="card-body p-3">
+        <form method="POST" action="{{ url_for('admin_tools.update_ticket_tags', ticket_id=ticket.id) }}">
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            {% for tag in all_tags %}
+            <div class="form-check form-check-inline me-0">
+              <input class="form-check-input" type="checkbox" name="tag_ids" value="{{ tag.id }}"
+                     id="tag_{{ tag.id }}" {% if tag.id in ticket_tag_ids %}checked{% endif %}>
+              <label class="form-check-label" for="tag_{{ tag.id }}">
+                <span class="badge bg-{{ tag.color }}">{{ tag.name }}</span>
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+          <button type="submit" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-save me-1"></i>Update Tags
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Update form (admins/agents only) -->
+    {% if can_update %}
+    <div class="card border-0 shadow-sm rounded-3 sticky-top" style="top:72px;">
+      <div class="card-header bg-primary text-white py-2 px-4 fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-edit me-2"></i>Update Ticket</span>
+        <span class="badge bg-light text-primary">Tier {{ ticket.level_label() }}</span>
+      </div>
+      <div class="card-body p-4">
+        {% if ticket.escalation_level < 3 %}
+        <form method="POST" action="{{ url_for('tickets.escalate', ticket_id=ticket.id) }}" class="mb-3">
+          <button type="submit" class="btn btn-outline-danger btn-sm w-100 fw-semibold"
+                  onclick="return confirm('Escalate this ticket to L{{ ticket.required_agent_level() + 1 }} and auto-route it to the least-loaded agent at that tier?')">
+            <i class="fas fa-arrow-up me-2"></i>Escalate to L{{ ticket.required_agent_level() + 1 }}
+          </button>
+        </form>
+        {% else %}
+        <div class="alert alert-secondary small py-2 mb-3">Already at the highest tier (L4).</div>
+        {% endif %}
+        <form method="POST" action="{{ url_for('tickets.update', ticket_id=ticket.id) }}">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Status</label>
+            <select name="current_status" class="form-select form-select-sm">
+              {% for s in statuses %}
+                <option value="{{ s }}" {% if ticket.current_status == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Priority</label>
+            <select name="priority" class="form-select form-select-sm">
+              {% for p in priorities %}
+                <option value="{{ p }}" {% if ticket.priority == p %}selected{% endif %}>{{ p }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">
+              Assign To
+              <span class="text-muted fw-normal">(tier {{ ticket.level_label() }}+ agents, or admins)</span>
+            </label>
+            <select name="assigned_to_id" class="form-select form-select-sm">
+              <option value="0">— Unassigned —</option>
+              {% for u in assignable %}
+                <option value="{{ u.id }}" {% if ticket.assigned_to_id == u.id %}selected{% endif %}>
+                  {{ u.full_name }} ({{ u.role.value }}{% if u.agent_level %} · L{{ u.agent_level }}{% endif %})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Escalation Level</label>
+            <select name="escalation_level" class="form-select form-select-sm">
+              <option value="0" {% if ticket.escalation_level == 0 %}selected{% endif %}>0 — None</option>
+              <option value="1" {% if ticket.escalation_level == 1 %}selected{% endif %}>1 — First Level</option>
+              <option value="2" {% if ticket.escalation_level == 2 %}selected{% endif %}>2 — Second Level</option>
+              <option value="3" {% if ticket.escalation_level == 3 %}selected{% endif %}>3 — Critical Escalation</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">DSO Name</label>
+            <input type="text" name="dso_name" class="form-control form-control-sm"
+                   value="{{ ticket.dso_name or '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Remarks / Resolution Notes</label>
+            <textarea name="remarks" class="form-control form-control-sm" rows="3"
+                      placeholder="Update notes...">{{ ticket.remarks or '' }}</textarea>
+          </div>
+          {% if not ticket.solved_status %}
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="solved" value="yes" id="markSolved">
+            <label class="form-check-label small fw-semibold text-success" for="markSolved">
+              <i class="fas fa-check-circle me-1"></i>Mark as Resolved
+            </label>
+          </div>
+          {% endif %}
+          <button type="submit" class="btn btn-primary w-100 fw-semibold">
+            <i class="fas fa-save me-2"></i>Save Changes
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+/* Comments */
+.comment-item { padding: 12px 16px; border-radius: 10px; background: #f8f9fa; }
+.internal-note { background: #fffbeb; border: 1px solid #fef3c7; }
+.comment-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: #2563eb; color: #fff; font-weight: 700; font-size: .85rem;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.comment-body { margin-left: 40px; font-size: .9rem; line-height: 1.6; color: #374151; }
+
+/* Timeline */
+.timeline { display: flex; flex-direction: column; gap: 0; }
+.timeline-item { display: flex; gap: 12px; padding-bottom: 20px; position: relative; }
+.timeline-item:last-child { padding-bottom: 0; }
+.timeline-item:not(:last-child)::before {
+  content: ''; position: absolute; left: 7px; top: 20px;
+  width: 2px; height: calc(100% - 8px); background: #e5e7eb;
+}
+.timeline-dot {
+  width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
+}
+.timeline-content { flex: 1; }
+
+/* Progress steps */
+.progress-steps {
+  display: flex; align-items: center; justify-content: space-between; gap: 0;
+}
+.progress-step { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 0; }
+.step-circle {
+  width: 36px; height: 36px; border-radius: 50%; border: 2px solid #e5e7eb;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .85rem; color: #9ca3af; background: #fff;
+  transition: all .3s;
+}
+.progress-step.done .step-circle { background: #22c55e; border-color: #22c55e; color: #fff; }
+.progress-step.current .step-circle { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 0 0 4px rgba(37,99,235,.2); }
+.step-label { font-size: .65rem; color: #9ca3af; font-weight: 500; white-space: nowrap; }
+.progress-step.done .step-label, .progress-step.current .step-label { color: #374151; font-weight: 600; }
+.step-connector { flex: 1; height: 2px; background: #e5e7eb; min-width: 10px; }
+.step-connector.active { background: #22c55e; }
+
+/* Progress tracker on phones — shrink so all 5 steps fit without horizontal overflow */
+@media (max-width: 767.98px) {
+  .step-circle { width: 26px; height: 26px; font-size: .65rem; }
+  .step-label { font-size: .55rem; white-space: normal; text-align: center; max-width: 48px; }
+  .step-connector { min-width: 4px; }
+}
+</style>
+
+{% block extra_scripts %}
+<script>
+// Activate the right tab if URL has #comments or #history
+const hash = window.location.hash;
+if (hash === '#comments') {
+  document.querySelector('[href="#comments"]').click();
+} else if (hash === '#history') {
+  document.querySelector('[href="#history"]').click();
+}
+
+// Canned response quick-insert
+function insertCanned(sel) {
+  const body = document.getElementById('commentBody');
+  if (sel.value && body) {
+    body.value = sel.value;
+    body.focus();
+  }
+  sel.value = '';
+}
+
+// Real-time translation
+async function translateDesc() {
+  const text = document.getElementById('problemDesc').textContent.trim();
+  const lang = document.getElementById('translateLang').value;
+  if (!text || text === '—') return;
+  try {
+    const r = await fetch('/api/translate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text, target: lang, source: 'auto'}),
+    });
+    const d = await r.json();
+    const el = document.getElementById('translatedDesc');
+    el.textContent = d.translated || d.error || '';
+    el.classList.remove('d-none');
+  } catch(e) { console.error(e); }
+}
+</script>
+{% endblock %}
+{% endblock %}

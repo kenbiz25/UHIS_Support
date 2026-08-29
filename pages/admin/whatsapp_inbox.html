@@ -1,0 +1,450 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp Inbox{% endblock %}
+
+{% block extra_styles %}
+.wa-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, #25d366 0%, #128c7e 100%);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: .9rem; flex-shrink: 0;
+}
+.stat-icon {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem;
+}
+.truncate-desc { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-row:hover { background: rgba(var(--bs-success-rgb), .04); }
+{% endblock %}
+
+{% block content %}
+
+{# ── Page Header ─────────────────────────────────────────────────────────── #}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <h4 class="fw-bold mb-1">
+      <i class="fa-brands fa-whatsapp text-success me-2"></i>WhatsApp Inbox
+    </h4>
+    <p class="text-muted small mb-0">Incoming support conversations</p>
+  </div>
+  <a href="{{ url_for('admin_tools.integrations_page') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="fas fa-cog me-1"></i>Configure
+  </a>
+</div>
+
+{# ── Stats Row ────────────────────────────────────────────────────────────── #}
+{% set total_count = sessions | length %}
+{% set active_count = sessions | selectattr('state', 'equalto', 'OPEN') | list | length %}
+{% set csat_count   = sessions | selectattr('state', 'equalto', 'CSAT_PENDING') | list | length %}
+
+{# Count new today — updated_at date matches today #}
+{% set today_str = now().strftime('%Y-%m-%d') if now is defined else '' %}
+{% set new_today = [] %}
+{% for s in sessions %}
+  {% if s.updated_at and s.updated_at.strftime('%Y-%m-%d') == today_str %}
+    {% set _ = new_today.append(1) %}
+  {% endif %}
+{% endfor %}
+
+<div class="row g-3 mb-4">
+
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body d-flex align-items-center gap-3 p-3">
+        <div class="stat-icon bg-success bg-opacity-10 text-success">
+          <i class="fa-brands fa-whatsapp"></i>
+        </div>
+        <div>
+          <div class="fs-3 fw-bold lh-1">{{ total_count }}</div>
+          <div class="text-muted small">Total Conversations</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body d-flex align-items-center gap-3 p-3">
+        <div class="stat-icon bg-success bg-opacity-10 text-success">
+          <i class="fas fa-circle-check"></i>
+        </div>
+        <div>
+          <div class="fs-3 fw-bold lh-1">{{ active_count }}</div>
+          <div class="text-muted small">Active</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body d-flex align-items-center gap-3 p-3">
+        <div class="stat-icon bg-primary bg-opacity-10 text-primary">
+          <i class="fas fa-star-half-stroke"></i>
+        </div>
+        <div>
+          <div class="fs-3 fw-bold lh-1">{{ csat_count }}</div>
+          <div class="text-muted small">Awaiting CSAT</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body d-flex align-items-center gap-3 p-3">
+        <div class="stat-icon bg-warning bg-opacity-10 text-warning">
+          <i class="fas fa-calendar-day"></i>
+        </div>
+        <div>
+          <div class="fs-3 fw-bold lh-1">{{ new_today | length }}</div>
+          <div class="text-muted small">New Today</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Conversation Table ───────────────────────────────────────────────────── #}
+{% if sessions %}
+<div class="card border-0 shadow-sm rounded-3 mb-4">
+  <div class="card-header bg-transparent py-3 px-4 fw-semibold border-bottom d-flex align-items-center justify-content-between">
+    <span><i class="fas fa-comments text-success me-2"></i>Conversations</span>
+    <span class="badge bg-secondary">{{ total_count }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-4" style="width:56px;">#</th>
+          <th>Phone / Contact</th>
+          <th>Name</th>
+          <th>App</th>
+          <th>Last Message</th>
+          <th>State</th>
+          <th>Last Active</th>
+          <th class="pe-4 text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for session in sessions %}
+        {% set sdata = session.data or {} %}
+        {% set s_name  = sdata.get('name', '') %}
+        {% set s_app   = sdata.get('app', '') %}
+        {% set s_desc  = sdata.get('description', '') %}
+        {% set s_tid   = sdata.get('ticket_id', '') %}
+        {% set s_tsl   = sdata.get('ticket_sl', '') %}
+        {% set s_initial = (s_name[0] | upper) if s_name else (session.phone[0] if session.phone else '?') %}
+
+        {# State badge color mapping #}
+        {% set badge_color = 'secondary' %}
+        {% if session.state == 'CHOOSE_APP' %}{% set badge_color = 'info' %}
+        {% elif session.state in ('DESCRIBE', 'CONFIRM') %}{% set badge_color = 'warning' %}
+        {% elif session.state == 'OPEN' %}{% set badge_color = 'success' %}
+        {% elif session.state == 'CSAT_PENDING' %}{% set badge_color = 'primary' %}
+        {% endif %}
+
+        <tr class="conv-row">
+          <td class="ps-4 text-muted small">{{ loop.index }}</td>
+
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="wa-avatar">{{ s_initial }}</div>
+              <span class="fw-semibold small font-monospace">{{ session.phone or '—' }}</span>
+            </div>
+          </td>
+
+          <td class="small">{{ s_name or '<span class="text-muted">—</span>' | safe }}</td>
+          <td class="small">
+            {% if s_app %}
+              <span class="badge bg-light text-dark border">{{ s_app }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+
+          <td>
+            <span class="truncate-desc small text-muted d-block" title="{{ s_desc }}">
+              {{ s_desc[:60] }}{% if s_desc | length > 60 %}…{% endif %}
+            </span>
+          </td>
+
+          <td>
+            <span class="badge bg-{{ badge_color }} bg-opacity-{{ '100' if session.state == 'OPEN' else '75' }}">
+              {{ session.state or 'INIT' }}
+            </span>
+          </td>
+
+          <td class="small text-muted">
+            {% if session.updated_at %}
+              {{ session.updated_at.strftime('%b %d, %H:%M') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <td class="pe-4 text-end">
+            <div class="d-flex gap-1 justify-content-end">
+              <button class="btn btn-outline-secondary btn-sm"
+                      data-bs-toggle="modal"
+                      data-bs-target="#convModal"
+                      data-phone="{{ session.phone }}"
+                      data-name="{{ s_name }}"
+                      data-state="{{ session.state }}"
+                      data-app="{{ s_app }}"
+                      data-description="{{ s_desc }}"
+                      data-ticket-sl="{{ s_tsl }}"
+                      data-ticket-id="{{ s_tid }}">
+                <i class="fas fa-eye"></i> View
+              </button>
+              {% if session.state == 'OPEN' %}
+              <button class="btn btn-success btn-sm"
+                      data-bs-toggle="modal"
+                      data-bs-target="#convModal"
+                      data-phone="{{ session.phone }}"
+                      data-name="{{ s_name }}"
+                      data-state="{{ session.state }}"
+                      data-app="{{ s_app }}"
+                      data-description="{{ s_desc }}"
+                      data-ticket-sl="{{ s_tsl }}"
+                      data-ticket-id="{{ s_tid }}"
+                      data-focus-reply="1">
+                <i class="fas fa-reply"></i> Reply
+              </button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+{# ── Empty State ──────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm rounded-3 mb-4">
+  <div class="card-body text-center py-5 px-4">
+    <div class="mb-3" style="font-size:3.5rem; opacity:.25; color: var(--bs-success);">
+      <i class="fa-brands fa-whatsapp"></i>
+    </div>
+    <h5 class="fw-semibold mb-1">No WhatsApp conversations yet</h5>
+    <p class="text-muted mb-3">
+      Share your WhatsApp number with users to get started.
+    </p>
+    <a href="{{ url_for('admin_tools.integrations_page') }}" class="btn btn-outline-success btn-sm">
+      <i class="fas fa-cog me-1"></i>Configure WhatsApp
+    </a>
+  </div>
+</div>
+{% endif %}
+
+{# ── Config Note ──────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm rounded-3 border-start border-success border-4">
+  <div class="card-body p-4">
+    <h6 class="fw-semibold mb-2"><i class="fas fa-circle-info text-success me-2"></i>WhatsApp Configuration</h6>
+    <p class="small text-muted mb-2">
+      To enable WhatsApp, set <code>WHATSAPP_TOKEN</code>, <code>WHATSAPP_PHONE_ID</code>, and
+      <code>WHATSAPP_VERIFY_TOKEN</code> in your <code>.env</code> file.
+    </p>
+    <div class="bg-light rounded-3 p-3 small font-monospace">
+      <span class="text-muted">Webhook URL:&nbsp;</span>
+      <span class="text-success">{{ request.host_url }}webhooks/whatsapp</span>
+    </div>
+  </div>
+</div>
+
+{# ── View / Reply Modal ───────────────────────────────────────────────────── #}
+<div class="modal fade" id="convModal" tabindex="-1" aria-labelledby="convModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-bottom">
+        <h5 class="modal-title fw-bold" id="convModalLabel">
+          <i class="fa-brands fa-whatsapp text-success me-2"></i>
+          <span id="modalTitle">Conversation</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4">
+
+        {# Summary #}
+        <div class="row g-3 mb-3">
+          <div class="col-sm-6">
+            <div class="small text-muted fw-semibold mb-1">Phone</div>
+            <div class="fw-semibold font-monospace" id="modalPhone">—</div>
+          </div>
+          <div class="col-sm-6">
+            <div class="small text-muted fw-semibold mb-1">Name</div>
+            <div id="modalName">—</div>
+          </div>
+          <div class="col-sm-6">
+            <div class="small text-muted fw-semibold mb-1">App / Product</div>
+            <div id="modalApp">—</div>
+          </div>
+          <div class="col-sm-6">
+            <div class="small text-muted fw-semibold mb-1">State</div>
+            <div id="modalState">—</div>
+          </div>
+          <div class="col-12">
+            <div class="small text-muted fw-semibold mb-1">Issue Description</div>
+            <div class="bg-light rounded-3 p-3 small" id="modalDescription">—</div>
+          </div>
+          <div class="col-12" id="ticketLinkRow" style="display:none;">
+            <div class="small text-muted fw-semibold mb-1">Linked Ticket</div>
+            <a id="ticketLink" href="#" class="badge bg-success text-decoration-none fs-6" target="_blank">
+              <i class="fas fa-ticket me-1"></i><span id="ticketSlLabel"></span>
+            </a>
+          </div>
+        </div>
+
+        <hr class="my-3" id="replyDivider">
+
+        {# Reply form #}
+        <div id="replySection">
+          <div class="small text-muted fw-semibold mb-2">Send a Reply</div>
+          <textarea class="form-control mb-2" id="replyText" rows="3" placeholder="Type your message…"></textarea>
+          <div id="replyFeedback" class="small mb-2" style="display:none;"></div>
+          <button class="btn btn-success btn-sm" id="sendReplyBtn">
+            <i class="fas fa-paper-plane me-1"></i>Send
+          </button>
+        </div>
+
+      </div>
+      <div class="modal-footer border-top">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  'use strict';
+
+  const convModal = document.getElementById('convModal');
+  if (!convModal) return;
+
+  convModal.addEventListener('show.bs.modal', function (event) {
+    const btn = event.relatedTarget;
+    if (!btn) return;
+
+    const phone      = btn.dataset.phone       || '';
+    const name       = btn.dataset.name        || '';
+    const state      = btn.dataset.state       || '';
+    const app        = btn.dataset.app         || '';
+    const desc       = btn.dataset.description || '';
+    const ticketSl   = btn.dataset.ticketSl    || '';
+    const ticketId   = btn.dataset.ticketId    || '';
+    const focusReply = btn.dataset.focusReply  === '1';
+
+    document.getElementById('modalTitle').textContent      = name || phone || 'Conversation';
+    document.getElementById('modalPhone').textContent      = phone || '—';
+    document.getElementById('modalName').textContent       = name  || '—';
+    document.getElementById('modalApp').textContent        = app   || '—';
+    document.getElementById('modalDescription').textContent = desc || '—';
+
+    // State badge
+    const stateColors = {
+      INIT: 'secondary', CHOOSE_APP: 'info', DESCRIBE: 'warning',
+      CONFIRM: 'warning', OPEN: 'success', CSAT_PENDING: 'primary'
+    };
+    const sc = stateColors[state] || 'secondary';
+    document.getElementById('modalState').innerHTML =
+      `<span class="badge bg-${sc}">${state || 'INIT'}</span>`;
+
+    // Ticket link
+    const ticketRow = document.getElementById('ticketLinkRow');
+    if (ticketSl) {
+      document.getElementById('ticketSlLabel').textContent = ticketSl;
+      const tid = parseInt(ticketId, 10);
+      if (tid) {
+        document.getElementById('ticketLink').href = `/tickets/${tid}`;
+      } else {
+        document.getElementById('ticketLink').removeAttribute('href');
+      }
+      ticketRow.style.display = '';
+    } else {
+      ticketRow.style.display = 'none';
+    }
+
+    // Show/hide reply section
+    const replySection  = document.getElementById('replySection');
+    const replyDivider  = document.getElementById('replyDivider');
+    const replyText     = document.getElementById('replyText');
+    const replyFeedback = document.getElementById('replyFeedback');
+
+    replySection.style.display  = '';
+    replyDivider.style.display  = '';
+    replyText.value             = '';
+    replyFeedback.style.display = 'none';
+    replyFeedback.textContent   = '';
+
+    // Store context on the send button for later use
+    const sendBtn = document.getElementById('sendReplyBtn');
+    sendBtn.dataset.phone    = phone;
+    sendBtn.dataset.ticketId = ticketId;
+
+    if (focusReply) {
+      setTimeout(function () { replyText.focus(); }, 300);
+    }
+  });
+
+  // Send reply
+  document.getElementById('sendReplyBtn').addEventListener('click', function () {
+    const btn        = this;
+    const phone      = btn.dataset.phone    || '';
+    const ticketId   = btn.dataset.ticketId || '';
+    const message    = (document.getElementById('replyText').value || '').trim();
+    const feedback   = document.getElementById('replyFeedback');
+
+    if (!message) {
+      feedback.className      = 'small mb-2 text-danger';
+      feedback.textContent    = 'Please enter a message before sending.';
+      feedback.style.display  = '';
+      return;
+    }
+    if (!ticketId) {
+      feedback.className      = 'small mb-2 text-warning';
+      feedback.textContent    = 'No linked ticket — cannot send reply.';
+      feedback.style.display  = '';
+      return;
+    }
+
+    btn.disabled     = true;
+    btn.innerHTML    = '<span class="spinner-border spinner-border-sm me-1"></span>Sending…';
+
+    fetch(`/webhooks/whatsapp/reply/${ticketId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ message: message, phone: phone })
+    })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      if (data && (data.success || data.status === 'ok')) {
+        feedback.className      = 'small mb-2 text-success';
+        feedback.textContent    = 'Message sent successfully.';
+        document.getElementById('replyText').value = '';
+      } else {
+        feedback.className   = 'small mb-2 text-danger';
+        feedback.textContent = (data && data.error) ? data.error : 'Failed to send message.';
+      }
+      feedback.style.display = '';
+    })
+    .catch(function () {
+      feedback.className      = 'small mb-2 text-danger';
+      feedback.textContent    = 'Network error — please try again.';
+      feedback.style.display  = '';
+    })
+    .finally(function () {
+      btn.disabled  = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send';
+    });
+  });
+
+})();
+</script>
+{% endblock %}

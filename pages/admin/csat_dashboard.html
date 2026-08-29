@@ -1,0 +1,543 @@
+{% extends "base.html" %}
+{% block title %}CSAT Dashboard{% endblock %}
+
+{% block extra_styles %}
+/* ── Layout helpers ──────────────────────────────────────────────── */
+.kpi-card          { border:0; border-radius:.75rem; box-shadow:0 2px 12px rgba(0,0,0,.07); transition:transform .15s; }
+.kpi-card:hover    { transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,.10); }
+.kpi-label         { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--bs-secondary); }
+.kpi-value         { font-size:1rem; font-weight:800; line-height:1.1; }
+.kpi-sub           { font-size:.75rem; color:var(--bs-secondary); margin-top:.15rem; }
+.kpi-icon          { width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.2rem; flex-shrink:0; }
+
+/* ── Score colours ───────────────────────────────────────────────── */
+.score-green  { color:#16a34a; }
+.score-yellow { color:#ca8a04; }
+.score-red    { color:#dc2626; }
+.bg-score-green  { background:rgba(22,163,74,.1); }
+.bg-score-yellow { background:rgba(202,138,4,.1); }
+.bg-score-red    { background:rgba(220,38,38,.1); }
+
+/* ── Chart containers ────────────────────────────────────────────── */
+.chart-box       { position:relative; height:220px; }
+.chart-box-trend { position:relative; height:260px; }
+
+/* ── Distribution bars ───────────────────────────────────────────── */
+.dist-row        { display:flex; align-items:center; gap:.6rem; margin-bottom:.45rem; }
+.dist-label      { width:24px; text-align:right; font-weight:700; font-size:.85rem; flex-shrink:0; }
+.dist-track      { flex:1; height:20px; background:#f1f5f9; border-radius:4px; overflow:hidden; position:relative; }
+.dist-fill       { height:100%; border-radius:4px; transition:width .6s ease; }
+.dist-count      { font-size:.78rem; color:var(--bs-secondary); min-width:70px; }
+
+/* ── Agent table ─────────────────────────────────────────────────── */
+.score-bar-track { height:8px; background:#e2e8f0; border-radius:4px; overflow:hidden; }
+.score-bar-fill  { height:100%; border-radius:4px; }
+
+/* ── Recent feedback cards ───────────────────────────────────────── */
+.feedback-card        { border:0; border-radius:.65rem; box-shadow:0 1px 6px rgba(0,0,0,.06); }
+.feedback-card:hover  { box-shadow:0 3px 12px rgba(0,0,0,.10); }
+.star-display         { font-size:1.1rem; letter-spacing:1px; }
+.feedback-text        { font-style:italic; color:#475569; font-size:.875rem; line-height:1.5; }
+
+/* ── Section headers ─────────────────────────────────────────────── */
+.section-title { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--bs-secondary); }
+
+/* ── Tooltip trigger ─────────────────────────────────────────────── */
+.info-tip { cursor:help; color:var(--bs-secondary); font-size:.8rem; }
+
+/* ── Empty state ─────────────────────────────────────────────────── */
+.empty-state { text-align:center; padding:4rem 2rem; }
+.empty-icon  { font-size:4rem; color:#cbd5e1; margin-bottom:1rem; }
+{% endblock %}
+
+{% block content %}
+
+{# ────────────────────────────────────────────────────────────────────────── #}
+{#  PAGE HEADER                                                                #}
+{# ────────────────────────────────────────────────────────────────────────── #}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <h4 class="fw-bold mb-1">
+      <i class="fas fa-star text-warning me-2"></i>Customer Satisfaction
+    </h4>
+    <p class="text-muted small mb-0">How happy are users with support?</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <span class="badge bg-light text-secondary border px-3 py-2 rounded-pill" style="font-size:.72rem;">
+      <i class="fas fa-calendar-alt me-1"></i>Last 30 days
+    </span>
+  </div>
+</div>
+
+{% if total_ratings == 0 %}
+{# ────────────────────────────────────────────────────────────────────────── #}
+{#  EMPTY STATE                                                                #}
+{# ────────────────────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-body empty-state">
+    <div class="empty-icon"><i class="fas fa-star-half-alt"></i></div>
+    <h5 class="fw-bold mb-2 text-secondary">No CSAT ratings yet</h5>
+    <p class="text-muted mb-4" style="max-width:480px; margin:0 auto .5rem;">
+      Customer Satisfaction (CSAT) ratings are collected automatically when a ticket is resolved.
+      Customers receive a prompt asking them to rate their support experience from 1 to 5 stars.
+    </p>
+    <div class="card border-0 bg-light rounded-3 p-4 mx-auto" style="max-width:460px; text-align:left;">
+      <div class="section-title mb-3">How CSAT works</div>
+      <ul class="list-unstyled mb-0 small text-muted" style="line-height:2;">
+        <li><i class="fas fa-check-circle text-success me-2"></i>An agent resolves a support ticket.</li>
+        <li><i class="fas fa-check-circle text-success me-2"></i>The customer receives a rating email.</li>
+        <li><i class="fas fa-check-circle text-success me-2"></i>They click a star (1–5) to submit feedback.</li>
+        <li><i class="fas fa-check-circle text-success me-2"></i>Ratings appear here in real time.</li>
+      </ul>
+    </div>
+    <p class="text-muted small mt-4">
+      Start resolving tickets and ratings will appear here automatically.
+    </p>
+  </div>
+</div>
+
+{% else %}
+{# ────────────────────────────────────────────────────────────────────────── #}
+{#  KPI ROW                                                                    #}
+{# ────────────────────────────────────────────────────────────────────────── #}
+
+{# Derive five-star count and colour class in a single pass #}
+{% set five_star_count = score_counts[5] if 5 in score_counts else 0 %}
+{% set five_pct = ((five_star_count / total_ratings) * 100) | round(1) if total_ratings > 0 else 0 %}
+
+{% if avg_score is not none %}
+  {% if avg_score >= 4 %}
+    {% set score_cls = "score-green" %}
+    {% set score_bg  = "bg-score-green" %}
+    {% set icon_cls  = "text-success" %}
+  {% elif avg_score >= 3 %}
+    {% set score_cls = "score-yellow" %}
+    {% set score_bg  = "bg-score-yellow" %}
+    {% set icon_cls  = "text-warning" %}
+  {% else %}
+    {% set score_cls = "score-red" %}
+    {% set score_bg  = "bg-score-red" %}
+    {% set icon_cls  = "text-danger" %}
+  {% endif %}
+{% else %}
+  {% set score_cls = "text-secondary" %}
+  {% set score_bg  = "bg-light" %}
+  {% set icon_cls  = "text-secondary" %}
+{% endif %}
+
+<div class="row g-3 mb-4">
+
+  {# Card 1 — Average Score #}
+  <div class="col-6 col-xl-3">
+    <div class="card kpi-card h-100">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div class="kpi-label">Average Score</div>
+          <div class="kpi-icon {{ score_bg }}">
+            <i class="fas fa-star {{ icon_cls }}"></i>
+          </div>
+        </div>
+        <div class="kpi-value {{ score_cls }}">
+          {% if avg_score is not none %}{{ "%.1f"|format(avg_score) }}{% else %}—{% endif %}
+          <span style="font-size:1rem;">/ 5</span>
+        </div>
+        <div class="kpi-sub mt-1">
+          {% if avg_score is not none %}
+            {% if avg_score >= 4 %}Excellent performance{% elif avg_score >= 3 %}Room for improvement{% else %}Needs attention{% endif %}
+          {% else %}No data yet{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Card 2 — Total Ratings #}
+  <div class="col-6 col-xl-3">
+    <div class="card kpi-card h-100">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div class="kpi-label">Total Ratings</div>
+          <div class="kpi-icon bg-primary bg-opacity-10">
+            <i class="fas fa-poll text-primary"></i>
+          </div>
+        </div>
+        <div class="kpi-value text-primary">{{ total_ratings }}</div>
+        <div class="kpi-sub mt-1">Customer responses collected</div>
+      </div>
+    </div>
+  </div>
+
+  {# Card 3 — Response Rate #}
+  <div class="col-6 col-xl-3">
+    <div class="card kpi-card h-100">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div class="kpi-label">
+            Response Rate
+            <i class="fas fa-info-circle info-tip ms-1"
+               data-bs-toggle="tooltip"
+               title="% of resolved tickets that received a CSAT rating"></i>
+          </div>
+          <div class="kpi-icon bg-info bg-opacity-10">
+            <i class="fas fa-percentage text-info"></i>
+          </div>
+        </div>
+        <div class="kpi-value text-info">{{ "%.1f"|format(response_rate) }}<span style="font-size:1rem;">%</span></div>
+        <div class="kpi-sub mt-1">Of resolved tickets rated</div>
+      </div>
+    </div>
+  </div>
+
+  {# Card 4 — 5-Star Ratings #}
+  <div class="col-6 col-xl-3">
+    <div class="card kpi-card h-100">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div class="kpi-label">5-Star Ratings</div>
+          <div class="kpi-icon bg-warning bg-opacity-10">
+            <i class="fas fa-trophy text-warning"></i>
+          </div>
+        </div>
+        <div class="kpi-value text-warning">{{ five_star_count }}</div>
+        <div class="kpi-sub mt-1">{{ five_pct }}% of all ratings</div>
+      </div>
+    </div>
+  </div>
+
+</div>{# /row KPI #}
+
+
+{# ────────────────────────────────────────────────────────────────────────── #}
+{#  DISTRIBUTION + TREND ROW                                                   #}
+{# ────────────────────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+  {# Score Distribution #}
+  <div class="col-12 col-lg-5">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body p-4">
+        <div class="section-title mb-3">Score Distribution</div>
+
+        {# We iterate 5 → 1 so the best score appears at the top #}
+        {% for score_val in [5, 4, 3, 2, 1] %}
+          {% if score_val == 5 %}{% set bar_color = "#16a34a" %}{% set fill_rgb = "22,163,74" %}
+          {% elif score_val == 4 %}{% set bar_color = "#65a30d" %}{% set fill_rgb = "101,163,13" %}
+          {% elif score_val == 3 %}{% set bar_color = "#ca8a04" %}{% set fill_rgb = "202,138,4" %}
+          {% elif score_val == 2 %}{% set bar_color = "#ea580c" %}{% set fill_rgb = "234,88,12" %}
+          {% else %}{% set bar_color = "#dc2626" %}{% set fill_rgb = "220,38,38" %}
+          {% endif %}
+
+          {% set cnt = score_counts[score_val] if score_val in score_counts else 0 %}
+          {% set pct = ((cnt / total_ratings) * 100) | round(1) if total_ratings > 0 else 0 %}
+
+          <div class="dist-row">
+            <div class="dist-label" style="color:{{ bar_color }}">{{ score_val }}</div>
+            <i class="fas fa-star" style="color:{{ bar_color }}; font-size:.8rem; flex-shrink:0;"></i>
+            <div class="dist-track">
+              <div class="dist-fill" style="width:{{ pct }}%; background:{{ bar_color }};"></div>
+            </div>
+            <div class="dist-count">{{ cnt }} &nbsp;<span class="text-muted">({{ pct }}%)</span></div>
+          </div>
+        {% endfor %}
+
+        <div class="mt-3 pt-2 border-top">
+          <canvas id="distChart" class="chart-box"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Trend Line Chart #}
+  <div class="col-12 col-lg-7">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body p-4">
+        <div class="section-title mb-3">Rating Trend (Last 30 Days)</div>
+        <div class="chart-box-trend">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>{# /row distribution + trend #}
+
+
+{# ────────────────────────────────────────────────────────────────────────── #}
+{#  AGENT PERFORMANCE TABLE                                                    #}
+{# ────────────────────────────────────────────────────────────────────────── #}
+{% if by_agent %}
+<div class="card border-0 shadow-sm rounded-3 mb-4">
+  <div class="card-body p-4">
+    <div class="section-title mb-3">Agent Performance</div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" style="font-size:.875rem;">
+        <thead class="table-light">
+          <tr>
+            <th class="fw-semibold" style="width:30%">Agent</th>
+            <th class="fw-semibold text-center" style="width:18%">Avg Score</th>
+            <th class="fw-semibold text-center" style="width:14%">Ratings</th>
+            <th class="fw-semibold" style="width:38%">Score Bar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {# Sort by avg_score descending is assumed done in the view;
+             if needed we iterate as-is since Jinja2 sort filter would work too #}
+          {% for agent in by_agent | sort(attribute='avg_score', reverse=True) %}
+            {% if agent.avg_score >= 4 %}
+              {% set row_cls  = "table-success" %}
+              {% set star_cls = "score-green" %}
+              {% set bar_col  = "#16a34a" %}
+            {% elif agent.avg_score >= 3 %}
+              {% set row_cls  = "table-warning" %}
+              {% set star_cls = "score-yellow" %}
+              {% set bar_col  = "#ca8a04" %}
+            {% else %}
+              {% set row_cls  = "table-danger" %}
+              {% set star_cls = "score-red" %}
+              {% set bar_col  = "#dc2626" %}
+            {% endif %}
+            {% set bar_pct = ((agent.avg_score / 5) * 100) | round(1) %}
+
+            <tr class="{{ row_cls }} bg-opacity-25">
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
+                       style="width:32px;height:32px;font-size:.7rem;font-weight:700;flex-shrink:0;">
+                    {{ agent.agent_name[:2] | upper }}
+                  </div>
+                  <span class="fw-semibold">{{ agent.agent_name }}</span>
+                </div>
+              </td>
+              <td class="text-center">
+                <span class="fw-bold {{ star_cls }}">{{ "%.2f"|format(agent.avg_score) }}</span>
+                <span class="text-warning ms-1" style="font-size:.9rem;">
+                  {% for i in range(5) %}
+                    {% if i < agent.avg_score | int %}★{% else %}☆{% endif %}
+                  {% endfor %}
+                </span>
+              </td>
+              <td class="text-center">
+                <span class="badge bg-secondary bg-opacity-10 text-secondary rounded-pill px-3">{{ agent.count }}</span>
+              </td>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <div class="score-bar-track flex-grow-1">
+                    <div class="score-bar-fill" style="width:{{ bar_pct }}%; background:{{ bar_col }};"></div>
+                  </div>
+                  <span class="text-muted" style="font-size:.72rem; min-width:32px;">{{ bar_pct }}%</span>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+
+{# ────────────────────────────────────────────────────────────────────────── #}
+{#  RECENT FEEDBACK                                                            #}
+{# ────────────────────────────────────────────────────────────────────────── #}
+{% if recent_ratings %}
+<div class="mb-2 d-flex align-items-center justify-content-between">
+  <div class="section-title">Recent Feedback</div>
+  <span class="text-muted" style="font-size:.75rem;">Last {{ recent_ratings | length }} ratings</span>
+</div>
+<div class="row g-3 mb-4">
+  {% for r in recent_ratings %}
+    {% if r.rating >= 4 %}
+      {% set card_border = "border-start border-success border-3" %}
+      {% set star_color  = "#16a34a" %}
+    {% elif r.rating >= 3 %}
+      {% set card_border = "border-start border-warning border-3" %}
+      {% set star_color  = "#ca8a04" %}
+    {% else %}
+      {% set card_border = "border-start border-danger border-3" %}
+      {% set star_color  = "#dc2626" %}
+    {% endif %}
+
+    <div class="col-12 col-md-6 col-xl-4">
+      <div class="card feedback-card {{ card_border }} h-100">
+        <div class="card-body p-3">
+
+          {# Star display #}
+          <div class="star-display mb-2" style="color:{{ star_color }}; letter-spacing:2px;">
+            {% for i in range(5) %}
+              {% if i < r.rating %}★{% else %}<span style="color:#e2e8f0;">☆</span>{% endif %}
+            {% endfor %}
+            <span class="ms-1 fw-bold" style="font-size:.9rem;">{{ r.rating }}/5</span>
+          </div>
+
+          {# Feedback text #}
+          {% if r.feedback %}
+            <p class="feedback-text mb-2">"{{ r.feedback }}"</p>
+          {% else %}
+            <p class="text-muted fst-italic mb-2" style="font-size:.8rem;">No written feedback</p>
+          {% endif %}
+
+          {# Meta row #}
+          <div class="d-flex flex-wrap gap-2 align-items-center mt-auto" style="font-size:.75rem;">
+            <a href="{{ url_for('tickets.detail', ticket_id=r.ticket.id) }}"
+               class="text-decoration-none text-primary fw-semibold">
+              <i class="fas fa-ticket-alt me-1"></i>#{{ r.ticket.sl_no }}
+            </a>
+            <span class="text-muted">
+              <i class="fas fa-user me-1"></i>{{ r.ticket.assignee.full_name if r.ticket.assignee else "Unassigned" }}
+            </span>
+            <span class="text-muted ms-auto">
+              <i class="fas fa-clock me-1"></i>{{ r.submitted_at.strftime('%b %d, %Y') if r.submitted_at else '—' }}
+            </span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endif %}{# /if total_ratings > 0 #}
+
+{% endblock %}
+
+
+{# ────────────────────────────────────────────────────────────────────────── #}
+{#  SCRIPTS                                                                    #}
+{# ────────────────────────────────────────────────────────────────────────── #}
+{% block extra_scripts %}
+{% if total_ratings > 0 %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  /* ── Shared defaults ─────────────────────────────────────────── */
+  Chart.defaults.font.family = "'Inter', 'Segoe UI', system-ui, sans-serif";
+  Chart.defaults.font.size   = 12;
+
+  /* ── Distribution horizontal bar chart ──────────────────────── */
+  var distCtx = document.getElementById("distChart");
+  if (distCtx) {
+    new Chart(distCtx, {
+      type: "bar",
+      data: {
+        labels: ["5 ★", "4 ★", "3 ★", "2 ★", "1 ★"],
+        datasets: [{
+          label: "Ratings",
+          data: [
+            {{ score_counts[5] if 5 in score_counts else 0 }},
+            {{ score_counts[4] if 4 in score_counts else 0 }},
+            {{ score_counts[3] if 3 in score_counts else 0 }},
+            {{ score_counts[2] if 2 in score_counts else 0 }},
+            {{ score_counts[1] if 1 in score_counts else 0 }}
+          ],
+          backgroundColor: ["#16a34a","#65a30d","#ca8a04","#ea580c","#dc2626"],
+          borderRadius: 4,
+          borderSkipped: false
+        }]
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var total = {{ total_ratings }};
+                var val   = ctx.parsed.x;
+                var pct   = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                return " " + val + " ratings (" + pct + "%)";
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            grid: { color: "rgba(0,0,0,.05)" },
+            ticks: { precision: 0 }
+          },
+          y: {
+            grid: { display: false }
+          }
+        }
+      }
+    });
+  }
+
+  /* ── Trend line chart ────────────────────────────────────────── */
+  var trendCtx = document.getElementById("trendChart");
+  if (trendCtx) {
+    var trendLabels = {{ trend_labels | tojson }};
+    var trendRaw    = {{ trend_scores | tojson }};
+
+    /* Replace null with NaN so Chart.js gaps the line cleanly */
+    var trendData = trendRaw.map(function(v) { return v === null ? NaN : v; });
+
+    new Chart(trendCtx, {
+      type: "line",
+      data: {
+        labels: trendLabels,
+        datasets: [{
+          label: "Avg Score",
+          data: trendData,
+          borderColor: "#16a34a",
+          backgroundColor: "rgba(22,163,74,.12)",
+          borderWidth: 2.5,
+          pointBackgroundColor: "#16a34a",
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          fill: true,
+          tension: 0.35,
+          spanGaps: false
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                return " " + (ctx.parsed.y !== null ? ctx.parsed.y.toFixed(2) + " / 5" : "No data");
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: "rgba(0,0,0,.04)" },
+            ticks: {
+              maxTicksLimit: 8,
+              maxRotation: 30,
+              font: { size: 11 }
+            }
+          },
+          y: {
+            min: 1,
+            max: 5,
+            grid: { color: "rgba(0,0,0,.04)" },
+            ticks: {
+              stepSize: 1,
+              callback: function(v) { return v + "★"; }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  /* ── Bootstrap tooltips ──────────────────────────────────────── */
+  var tips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+  tips.forEach(function(el) {
+    new bootstrap.Tooltip(el, { placement: "top" });
+  });
+
+})();
+</script>
+{% endif %}
+{% endblock %}

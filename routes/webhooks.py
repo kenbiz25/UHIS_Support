@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, render_template, current_app, red
 from flask_login import login_required, current_user
 from models import db, Ticket, WhatsAppSession, CSATRating, TicketComment, NudgeLog, Role, User
 from datetime import datetime
-import requests
+from whatsapp_client import send as _wa_send
 import logging
 
 logger = logging.getLogger(__name__)
@@ -10,47 +10,8 @@ logger = logging.getLogger(__name__)
 webhooks = Blueprint('webhooks', __name__)
 
 
-def _get_wa_token():
-    return current_app.config.get('WHATSAPP_TOKEN')
-
-
-def _get_wa_phone_id():
-    return current_app.config.get('WHATSAPP_PHONE_ID')
-
-
 def _get_wa_verify_token():
     return current_app.config.get('WHATSAPP_VERIFY_TOKEN', '')
-
-
-def _wa_send(phone, message):
-    token = _get_wa_token()
-    phone_id = _get_wa_phone_id()
-
-    if not token or not phone_id:
-        logger.warning(
-            '_wa_send: WHATSAPP_TOKEN or WHATSAPP_PHONE_ID not configured — message not sent.'
-        )
-        return False
-
-    url = f'https://graph.facebook.com/v18.0/{phone_id}/messages'
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json',
-    }
-    payload = {
-        'messaging_product': 'whatsapp',
-        'to': phone,
-        'type': 'text',
-        'text': {'body': message},
-    }
-
-    try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=10)
-        resp.raise_for_status()
-        return True
-    except requests.RequestException as exc:
-        logger.warning('_wa_send failed for %s: %s', phone, exc)
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +65,22 @@ def whatsapp_incoming():
         logger.exception('whatsapp_incoming unhandled error: %s', exc)
 
     return jsonify({'status': 'ok'}), 200
+
+
+@webhooks.route('/webhooks/whatsapp/twilio', methods=['POST'])
+def whatsapp_twilio_incoming():
+    """Twilio WhatsApp inbound webhook - same state machine as the Meta handler."""
+    try:
+        phone = request.form.get('From', '').replace('whatsapp:', '').strip()
+        body = request.form.get('Body', '').strip()
+        name = request.form.get('ProfileName', '').strip() or phone
+
+        if phone and body:
+            _handle_wa_message(phone, body, name)
+    except Exception as exc:
+        logger.exception('whatsapp_twilio_incoming unhandled error: %s', exc)
+
+    return '', 204
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +324,7 @@ def _create_wa_ticket(session):
 @webhooks.route('/webhooks/whatsapp/reply/<int:ticket_id>', methods=['POST'])
 @login_required
 def whatsapp_agent_reply(ticket_id):
-    if current_user.role not in (Role.SUPER_ADMIN, Role.ADMIN, Role.DSO):
+    if current_user.role not in (Role.SUPER_ADMIN, Role.ADMIN, Role.AGENT):
         return jsonify({'ok': False, 'error': 'Forbidden'}), 403
 
     payload = request.get_json(force=True, silent=True) or {}
@@ -379,7 +356,7 @@ def whatsapp_agent_reply(ticket_id):
 @webhooks.route('/admin/whatsapp')
 @login_required
 def whatsapp_inbox():
-    if current_user.role not in (Role.SUPER_ADMIN, Role.ADMIN, Role.DSO):
+    if current_user.role not in (Role.SUPER_ADMIN, Role.ADMIN, Role.AGENT):
         flash('Access denied.', 'danger')
         return redirect(url_for('dashboard.index'))
 

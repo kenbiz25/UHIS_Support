@@ -1,6 +1,6 @@
-# Medtronic LABS — Support Ticketing System
+# Bangladesh UHIS — Medtronic LABS Support Ticketing System
 
-A multi-channel, intelligent support platform built for Medtronic LABS field operations across 8 countries (Kenya, Bangladesh, India, Bhutan, Sierra Leone, Tanzania, Rwanda, Saudi Arabia). Supports ticket intake via web form, WhatsApp conversational bot, embeddable in-app widget, email, and REST API — with proactive nudges, CSAT tracking, and country-specific escalation flows.
+A multi-channel, intelligent support platform built for Medtronic LABS' Bangladesh field operations (built in partnership with BRAC and the Ministry of Health, part of the SPICE digital health platform). Supports ticket intake via web form, WhatsApp conversational bot, embeddable in-app widget, email, and REST API — with proactive nudges, CSAT tracking, and an escalation flow tailored to Bangladesh's administrative structure.
 
 ---
 
@@ -14,7 +14,7 @@ A multi-channel, intelligent support platform built for Medtronic LABS field ope
 6. [Default Credentials](#default-credentials)
 7. [Roles & Permissions](#roles--permissions)
 8. [SLA Policies](#sla-policies)
-9. [Country Escalation Matrices](#country-escalation-matrices)
+9. [Escalation Matrix](#escalation-matrix)
 10. [Channels & Integrations](#channels--integrations)
 11. [Intelligent Support Features](#intelligent-support-features)
 12. [Feature Reference](#feature-reference)
@@ -31,15 +31,16 @@ A multi-channel, intelligent support platform built for Medtronic LABS field ope
 - **Status workflow** — Open → In Progress → Pending → Resolved → Closed → Reopened
 - **Merge, duplicate, and link tickets** — parent/child hierarchy, related/blocks/duplicates link types
 - **Custom fields** — admin-configurable text, dropdown, checkbox, date, number fields per ticket
-- **Auto-assignment** — round-robin across active agents by open ticket count
+- **Auto-assignment** — new tickets route to the least-loaded active **L1 agent** (first contact); one-click **Escalate** auto-routes to the least-loaded agent at the next tier (L2–L4), falling back to Admins if none are available
 - **Fixed sidebar** — always visible, toggleable, never moves with scroll
 
 ### Intelligent Support Layer
 
-- **WhatsApp conversational bot** — 5-step guided ticket creation via any WhatsApp number; agents reply from the dashboard; status updates pushed back to the user
-- **Embeddable in-app widget** — single `<script>` tag drops a floating support widget into SPICE, Tiberbu, or Afyangu; searches Knowledge Base articles first, falls back to ticket form with page context pre-filled
+- **WhatsApp conversational bot** — 5-step guided ticket creation via any WhatsApp number (Meta Cloud API or Twilio); agents reply from the dashboard; status updates pushed back to the user
+- **Embeddable in-app widget** — single `<script>` tag drops a floating support widget into SPICE, Tiberbu, or Afyangu, with three touchpoints: self-service Knowledge Base search + ticket form, a "Chat on WhatsApp" quick link, and an AI Assistant that answers from the KB then collects contact info and files a ticket (falls back to a guided, non-AI intake if no OpenAI key is configured)
+- **SSO login** — optional "Continue with Google" / "Continue with Microsoft" on the login page, signing in to existing accounts matched by email
 - **Proactive nudges** — automatic aging alerts for P1/P2 tickets with no agent response after 2 hours; CSAT surveys pushed to WhatsApp 1 hour after ticket resolution
-- **Broadcast messaging** — admins send proactive WhatsApp messages to DSOs filtered by country and role
+- **Broadcast messaging** — admins send proactive WhatsApp messages to Agents filtered by country and role
 - **CSAT tracking** — 1–5 star ratings via WhatsApp reply, widget, or email link; agent leaderboard, 30-day trend chart, response rate analytics
 
 ### Communication
@@ -66,7 +67,7 @@ A multi-channel, intelligent support platform built for Medtronic LABS field ope
 
 ### Dashboards & Analytics
 
-- **Role-aware dashboards** — Super Admin, Admin/DSO, Reporter, and Viewer (reports-only) views
+- **Role-aware dashboards** — Super Admin, Admin (country/region queue), Agent (own tickets + pickup queue, tiered L1–L4), Reporter, and Viewer (reports-only) views
 - **Analytics dashboard** at `/admin/analytics` — date range (7/30/90/180 days/custom), volume chart, SLA compliance, channel/category breakdowns, agent performance table
 - **Reports** at `/admin/reports` — status, priority, escalation pyramid (L1–L4), district, and platform charts
 - **CSAT dashboard** at `/admin/csat` — average score, score distribution, 30-day trend, agent leaderboard, recent feedback
@@ -106,7 +107,7 @@ A multi-channel, intelligent support platform built for Medtronic LABS field ope
 |-------|-----------|
 | Backend | Flask 3.0 |
 | ORM | Flask-SQLAlchemy + SQLite (dev) / PostgreSQL (prod) |
-| Auth | Flask-Login + Werkzeug password hashing |
+| Auth | Flask-Login + Werkzeug password hashing; optional Google/Microsoft SSO via Authlib |
 | Rate limiting | Flask-Limiter 3.x (per-IP; login + password-reset endpoints) |
 | Frontend | Jinja2 + Bootstrap 5.3 + Chart.js 4.4 + Font Awesome 6.4 |
 | File uploads | Werkzeug + Pillow |
@@ -114,8 +115,8 @@ A multi-channel, intelligent support platform built for Medtronic LABS field ope
 | Excel export | openpyxl |
 | Timezones | pytz |
 | Background jobs | APScheduler 3.10 (in-process, no Redis required) |
-| WhatsApp | Meta Cloud API (Graph v18) |
-| Widget | Vanilla JS, Shadow DOM, zero dependencies |
+| WhatsApp | Meta Cloud API (Graph v18) or Twilio |
+| Widget | Vanilla JS, Shadow DOM, zero dependencies (AI Assistant touchpoint calls OpenAI server-side when configured) |
 
 > **Production path**: Flask → FastAPI; SQLite → PostgreSQL; APScheduler → Celery + Redis for distributed workers.
 
@@ -173,9 +174,10 @@ On first run it automatically seeds:
 
 - A default Super Admin account — username `superadmin`, password printed to stdout on first boot (set `SUPERADMIN_PASSWORD` in `.env` to control it; **change after first login**)
 - Built-in SLA policies for all seven priority tiers (P1–P5, OTP, OUTAGE)
-- Country and administrative location data for all 8 countries
+- Bangladesh's administrative location data (8 divisions)
 - Issue taxonomy (6 categories, 23+ subcategories)
-- Country escalation matrices for Kenya (3 streams), Bangladesh, and Sierra Leone
+
+Bangladesh's own escalation matrix is entered by hand through the admin UI at `/admin/escalation-matrices`, not seeded — it isn't code-managed.
 
 ### 5. (Optional) Seed demo data
 
@@ -184,14 +186,6 @@ python seed_demo.py
 ```
 
 Seeds 80 tickets, 200 comments, tags, canned responses, automation rules, and 12 KB articles for testing all features.
-
-### 6. (Optional) Seed Kenya sub-county locations
-
-```bash
-python seed_kenya_locations.py
-```
-
-Seeds all 47 counties and 305 sub-counties for Kenya.
 
 ---
 
@@ -217,21 +211,40 @@ Copy `.env.example` to `.env`. Variables marked **required** must be set for tha
 | `MAIL_PASSWORD` | — | SMTP password or app password |
 | `ADMIN_EMAIL` | `admin@example.com` | Address that receives critical-ticket alerts |
 
-### WhatsApp — Meta Cloud API
+### WhatsApp — Meta Cloud API or Twilio
+
+One webhook family (`routes/webhooks.py`) supports both providers; `WA_PROVIDER` picks which credentials `_wa_send()` uses for outbound messages. Both providers share the same bot conversation, admin WhatsApp Inbox, and CSAT flow.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `WA_PROVIDER` | `meta` | `meta` or `twilio` — which provider outbound sends use |
 | `WHATSAPP_TOKEN` | — | Meta Cloud API permanent / system user token |
 | `WHATSAPP_PHONE_ID` | — | Phone Number ID from Meta Business dashboard |
-| `WHATSAPP_VERIFY_TOKEN` | — | **Required** — Verification token you enter when registering the webhook on Meta. Set to any secret string. |
+| `WHATSAPP_VERIFY_TOKEN` | — | **Required for Meta** — verification token you enter when registering the webhook on Meta. Set to any secret string. |
+| `TWILIO_ACCOUNT_SID` | — | Twilio Account SID |
+| `TWILIO_AUTH_TOKEN` | — | Twilio Auth Token |
+| `TWILIO_WA_FROM` | `whatsapp:+14155238886` | Twilio WhatsApp sender number |
 
-Register your webhook URL on Meta: `https://your-domain.com/webhooks/whatsapp`
+Register your webhook URL: Meta → `https://your-domain.com/webhooks/whatsapp`, Twilio → `https://your-domain.com/webhooks/whatsapp/twilio` ("When a Message Comes In" in the Twilio Console).
+
+### SSO — Google / Microsoft (Outlook)
+
+Optional "Continue with Google" / "Continue with Microsoft" buttons on the login page. Leave blank to keep them showing a friendly "not configured" message — no code changes needed either way. Signs in to an **existing** account matched by email; it never creates new accounts or roles.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | From Google Cloud Console → APIs & Services → Credentials. Redirect URI: `https://your-domain.com/login/oauth/google/callback` |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | — | From Azure Portal → Entra ID → App registrations. Redirect URI: `https://your-domain.com/login/oauth/microsoft/callback` |
+| `MICROSOFT_TENANT_ID` | `common` | Restrict to a specific Azure tenant if needed |
 
 ### Embeddable Widget
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WIDGET_ALLOWED_ORIGINS` | `*` | CORS allowed origins for the widget API. Set to your app domains in production (e.g. `https://spice.medtroniclabs.org`). |
+| `SUPPORT_WHATSAPP_NUMBER` | — | wa.me-format number (country code + digits, no `+`) for the widget's "Chat on WhatsApp" quick action |
+| `OPENAI_API_KEY` | — | Powers the widget's "Ask AI Assistant" touchpoint (answers from the Knowledge Base, then collects contact info and files a ticket). Left blank, the touchpoint still works via a guided, non-AI intake flow. |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Chat model used for AI Assistant replies |
 
 ### Telegram Bot
 
@@ -290,9 +303,9 @@ User_Support/
 │   ├── notifications.py      # In-app notification inbox
 │   └── integrations.py       # Email and Telegram intake webhooks
 │
-├── templates/
+├── pages/
 │   ├── base.html             # Shared layout: dark mode, shortcuts, fixed sidebar, widget
-│   ├── portal/               # Reporter and DSO dashboards (list/split/kanban views)
+│   ├── portal/               # Reporter and Agent/Admin dashboards (list/split/kanban views)
 │   ├── admin/
 │   │   ├── analytics.html            # Full-filter analytics dashboard
 │   │   ├── reports.html              # Reports + escalation pyramid
@@ -302,7 +315,7 @@ User_Support/
 │   │   ├── nudge_log.html            # Nudge delivery log
 │   │   ├── csat_dashboard.html       # CSAT ratings, trend, agent leaderboard
 │   │   ├── escalation_matrices.html  # Country escalation matrix list
-│   │   ├── escalation_matrix_detail.html  # Per-country matrix (multi-stream for Kenya)
+│   │   ├── escalation_matrix_detail.html  # Bangladesh's escalation matrix (multi-stream)
 │   │   └── ...                       # Other admin pages
 │   ├── kb/                   # Public knowledge base
 │   └── account/              # User preferences
@@ -312,16 +325,15 @@ User_Support/
 │   │   └── support-widget.js   # Self-contained embeddable widget (shadow DOM)
 │   └── screenshots/            # Uploaded file attachments
 │
-├── seed_demo.py              # 80 tickets, 200 comments, KB articles, automation rules
-├── seed_kenya_locations.py   # 47 counties + 305 sub-counties
-└── run_seed.py               # Seeds country escalation matrices (KE 3-stream, BD, SL)
+├── seed_demo.py              # Demo tickets, comments, KB articles, automation rules
+└── run_seed.py               # Seeds/updates Bangladesh's escalation matrix
 ```
 
 ### Database Models
 
 | Model | Purpose |
 |-------|---------|
-| `User` | Agents, admins, reporters, viewers — with timezone/language preferences |
+| `User` | Agents (tiered `agent_level` L1–L4), admins, reporters, viewers — with timezone/language preferences |
 | `UserRegionRole` | Multi-region, multi-role assignments (country / admin-level-1 scoping) |
 | `Ticket` | Core ticket with SLA, channel, widget context, WhatsApp phone |
 | `TicketComment` | Public and internal notes (WhatsApp messages prefixed `[WhatsApp]`) |
@@ -368,13 +380,23 @@ User_Support/
 |------|:-:|:-:|:-:|:-:|:-:|
 | Super Admin | Yes | Yes | Yes | Yes | Yes |
 | Admin | Yes | Yes | Yes | Yes (limited) | No |
-| DSO | Yes | Yes | Yes (own region) | No | No |
+| Agent | Yes | Yes | Yes (own region) | No | No |
 | Reporter | Yes (own only) | No | No | No | No |
 | Viewer | No | No | Yes (read-only) | No | No |
 
 ### Regional Scoping
 
-Admins and DSOs see only tickets from countries/regions assigned to them via **Admin → Users → Manage Regions**. Super Admins bypass all regional filters. Users with no region configured retain global access as a safe fallback.
+Admins and Agents see only tickets from countries/regions assigned to them via **Admin → Users → Manage Regions**. Super Admins bypass all regional filters. Users with no region configured retain global access as a safe fallback.
+
+### Agent Tiers (L1–L4)
+
+Agents carry a tier (`agent_level`, 1–4), set at registration or from **Admin → Users**:
+
+- **L1** handles first contact — every new ticket auto-assigns to the least-loaded active L1 agent.
+- A ticket's required tier is derived from its escalation level (`escalation_level + 1`, capped at L4) and shown as a badge on the ticket detail page and dashboard queue.
+- The **Escalate** button on a ticket bumps it to the next tier and auto-routes it to the least-loaded active agent at that tier (falling back to any active agent, then an Admin, if none exist at that tier).
+- Manual reassignment only offers agents at the ticket's current tier or higher, plus Admins/Super Admins — a ticket can't be quietly handed down a tier.
+- Agents land on a **My Tickets** dashboard: their own assigned tickets plus an "in my queue" count of unassigned tickets at their tier. Admins/Super Admins still see the full country/region ticket queue.
 
 ---
 
@@ -396,16 +418,13 @@ Business hours are configured **per country** (timezone, work start/end, working
 
 ---
 
-## Country Escalation Matrices
+## Escalation Matrix
 
 View at **Admin → Escalation Matrices** (`/admin/escalation-matrices`).
 
 | Country | Streams | Description |
 |---------|:-------:|-------------|
-| Kenya | 3 | Safaricom/Afyangu (citizens), Tiberbu (clinicians), SPICE/Medtronic LABS (HRIOs/CHWs) — all converge at Product Team |
 | Bangladesh | 2 | SPICE field support (Shashtya Kormi/CHCP) + Internal Technical Escalation (L1–L4) |
-| Sierra Leone | 1 | Cascading chiefdom → district → national → LABS Ops/MoH → Product Team |
-| Other countries | — | Configurable via the admin UI |
 
 ---
 
@@ -413,7 +432,7 @@ View at **Admin → Escalation Matrices** (`/admin/escalation-matrices`).
 
 ### WhatsApp (Conversational Bot)
 
-**Setup:**
+**Setup (Meta Cloud API — default):**
 1. Create a Meta Business account and a WhatsApp Business app at [developers.facebook.com](https://developers.facebook.com)
 2. Add your phone number and get the Phone Number ID
 3. Generate a system user token (permanent access token)
@@ -426,6 +445,8 @@ View at **Admin → Escalation Matrices** (`/admin/escalation-matrices`).
 5. Register the webhook URL on Meta: `https://your-domain.com/webhooks/whatsapp`
    - Verify token: the value of `WHATSAPP_VERIFY_TOKEN`
    - Subscribe to: `messages`
+
+**Setup (Twilio — alternative):** set `WA_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WA_FROM` in `.env`, then set your Twilio WhatsApp sandbox/sender's "When a Message Comes In" webhook to `https://your-domain.com/webhooks/whatsapp/twilio`. Same bot flow, admin inbox, and CSAT either way.
 
 **User conversation flow:**
 
@@ -455,15 +476,17 @@ Drop one line into SPICE, Tiberbu, or any web app:
 <script src="https://your-support-domain.com/static/widget/support-widget.js"
         data-base-url="https://your-support-domain.com"
         data-app="SPICE"
-        data-primary-color="#1d6fa4">
+        data-primary-color="#2514BE"
+        data-whatsapp="254705091683">
 </script>
 ```
 
 The widget:
 1. Shows a floating **?** button (bottom-right)
-2. On click, opens a panel with a KB article search
-3. If no articles resolve the issue, presents a pre-filled ticket form (app name and current page URL captured automatically)
-4. On ticket creation, switches to a status tracker with star rating
+2. On click, opens a panel with KB article search, plus two quick-action touchpoints: **Chat on WhatsApp** (opens `wa.me/<data-whatsapp>`, hidden if that attribute is empty) and **Ask AI Assistant**
+3. Search fallback: if no KB articles resolve the issue, presents a pre-filled ticket form (app name and current page URL captured automatically)
+4. AI Assistant: answers from the Knowledge Base; when it can't help (or the user asks for a human), it collects name + contact, summarizes the conversation into the ticket description, and asks for a quick CSAT rating right after filing. Without `OPENAI_API_KEY` configured, the same flow runs as a guided, non-AI intake instead of dead-ending.
+5. On ticket creation, switches to a status tracker with star rating
 
 No dependencies. Uses Shadow DOM for full CSS isolation from the host app. Full-screen on mobile.
 
@@ -473,6 +496,7 @@ No dependencies. Uses Shadow DOM for full CSS isolation from the host app. Full-
 |--------|------|-------------|
 | `GET` | `/widget/config` | Branding, categories, countries |
 | `GET` | `/widget/search?q=` | Knowledge base article search |
+| `POST` | `/widget/ai-chat` | AI Assistant turn (or guided-intake fallback without an OpenAI key) |
 | `POST` | `/widget/ticket` | Create a ticket |
 | `GET` | `/widget/ticket/<sl_no>` | Track ticket status |
 | `POST` | `/widget/csat/<token>` | Submit a star rating |
@@ -529,7 +553,7 @@ Two background jobs run continuously without any configuration:
 
 Admins can send proactive WhatsApp messages to field staff at **Channels & Engagement → Broadcasts**:
 - Filter recipients by country (multi-select or all)
-- Filter by role (DSO, Reporter, Admin, or all)
+- Filter by role (Agent, Reporter, Admin, or all)
 - Preview the formatted WhatsApp message before sending
 - Full delivery history with recipient count and status
 

@@ -1,13 +1,19 @@
 import os
 import secrets
-from flask import Flask
+from flask import Flask, session
 from flask_login import LoginManager, current_user
 from werkzeug.security import generate_password_hash
 from apscheduler.schedulers.background import BackgroundScheduler
+from filelock import FileLock, Timeout as FileLockTimeout
 import atexit
 
+# Held for the process lifetime once acquired below - guards against every
+# worker process starting its own BackgroundScheduler (which would fire aging
+# alerts / CSAT dispatch once per worker instead of once for the whole app).
+_scheduler_lock = FileLock(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".scheduler.lock"))
+
 from config import Config
-from extensions import limiter
+from extensions import limiter, oauth
 from models import (
     db, User, Role, SLAPolicy, Country, AdminLevel1, IssueCategory, IssueSubcategory,
     TicketLink, SavedView, CustomField, TicketFieldValue, TimeEntry,
@@ -30,11 +36,30 @@ from routes.nudges import nudges
 
 
 def create_app(config_class=Config):
-    app = Flask(__name__)
+    app = Flask(__name__, template_folder="pages")
     app.config.from_object(config_class)
 
     db.init_app(app)
     limiter.init_app(app)
+    oauth.init_app(app)
+
+    if app.config.get("GOOGLE_CLIENT_ID"):
+        oauth.register(
+            name="google",
+            client_id=app.config["GOOGLE_CLIENT_ID"],
+            client_secret=app.config["GOOGLE_CLIENT_SECRET"],
+            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
+    if app.config.get("MICROSOFT_CLIENT_ID"):
+        tenant = app.config.get("MICROSOFT_TENANT_ID", "common")
+        oauth.register(
+            name="microsoft",
+            client_id=app.config["MICROSOFT_CLIENT_ID"],
+            client_secret=app.config["MICROSOFT_CLIENT_SECRET"],
+            server_metadata_url=f"https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
 
     login_manager = LoginManager(app)
     login_manager.login_view = "auth.login"
@@ -58,7 +83,11 @@ def create_app(config_class=Config):
             branding = BrandingSettings.get()
         except Exception:
             pass
-        return {"unread_notifications": unread, "branding": branding}
+        return {
+            "unread_notifications": unread,
+            "branding": branding,
+            "support_whatsapp_number": app.config.get("SUPPORT_WHATSAPP_NUMBER", ""),
+        }
 
     app.register_blueprint(auth)
     app.register_blueprint(tickets)
@@ -73,6 +102,22 @@ def create_app(config_class=Config):
     app.register_blueprint(widget_api)
     app.register_blueprint(nudges)
 
+    @app.after_request
+    def _translate_response(response):
+        lang = session.get("lang", "en")
+        if (
+            lang != "en"
+            and response.status_code == 200
+            and response.content_type
+            and response.content_type.startswith("text/html")
+        ):
+            try:
+                from translation import translate_html
+                response.set_data(translate_html(response.get_data(as_text=True), lang))
+            except Exception as e:
+                app.logger.warning(f"UI translation failed: {e}")
+        return response
+
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     with app.app_context():
@@ -82,23 +127,31 @@ def create_app(config_class=Config):
         _seed_sla_policies()
         _seed_countries()
         _seed_issue_taxonomy()
-        _seed_escalation_matrices()
 
-    scheduler = BackgroundScheduler(daemon=True)
+    try:
+        _scheduler_lock.acquire(timeout=0)
+    except FileLockTimeout:
+        app.logger.info("Background scheduler already running in another worker - skipping here.")
+    else:
+        scheduler = BackgroundScheduler(daemon=True)
 
-    def _job_aging_alert():
-        with app.app_context():
-            _check_aging_tickets(app)
+        def _job_aging_alert():
+            with app.app_context():
+                _check_aging_tickets(app)
 
-    def _job_csat_dispatch():
-        with app.app_context():
-            _dispatch_wa_csat(app)
+        def _job_csat_dispatch():
+            with app.app_context():
+                _dispatch_wa_csat(app)
 
-    scheduler.add_job(_job_aging_alert, 'interval', minutes=30, id='aging_alert', replace_existing=True)
-    scheduler.add_job(_job_csat_dispatch, 'interval', minutes=60, id='csat_dispatch', replace_existing=True)
-    if not scheduler.running:
+        scheduler.add_job(_job_aging_alert, 'interval', minutes=30, id='aging_alert', replace_existing=True)
+        scheduler.add_job(_job_csat_dispatch, 'interval', minutes=60, id='csat_dispatch', replace_existing=True)
         scheduler.start()
-        atexit.register(lambda: scheduler.shutdown(wait=False))
+
+        def _shutdown():
+            scheduler.shutdown(wait=False)
+            _scheduler_lock.release()
+
+        atexit.register(_shutdown)
 
     return app
 
@@ -138,6 +191,12 @@ def _migrate_db():
         # ── users: columns added in later phases ───────────────────────────
         _add("users", "timezone", "VARCHAR(50) DEFAULT 'UTC'")
         _add("users", "language", "VARCHAR(10) DEFAULT 'en'")
+        _add("users", "agent_level", "INTEGER")
+
+        # ── Role.DSO renamed to Role.AGENT (tiered L1-L4 agents) ─────────────
+        conn.execute(db.text("UPDATE users SET role='AGENT' WHERE role='DSO'"))
+        conn.execute(db.text("UPDATE user_region_roles SET role='AGENT' WHERE role='DSO'"))
+        conn.execute(db.text("UPDATE users SET agent_level=1 WHERE role='AGENT' AND agent_level IS NULL"))
 
         # ── countries: business hours per country ──────────────────────────
         _add("countries", "timezone",        "VARCHAR(50) DEFAULT 'Africa/Nairobi'")
@@ -292,62 +351,13 @@ def _seed_sla_policies():
 
 
 def _seed_countries():
+    # Bangladesh UHIS is Bangladesh-only - see scripts/bangladesh_only_cleanup.py
+    # for the migration that removed the other countries this list used to seed.
     COUNTRIES = [
         {
             "name": "Bangladesh", "code": "BD",
             "admin1_label": "Division", "admin2_label": "District", "admin3_label": "Upazila",
             "level1": ["Dhaka", "Chittagong", "Rajshahi", "Khulna", "Barisal", "Sylhet", "Rangpur", "Mymensingh"],
-        },
-        {
-            "name": "Kenya", "code": "KE",
-            "admin1_label": "County", "admin2_label": "Sub-county", "admin3_label": "Ward",
-            "level1": ["Nairobi", "Mombasa", "Kisumu", "Nakuru", "Uasin Gishu", "Machakos",
-                       "Nyeri", "Meru", "Kilifi", "Kakamega", "Bungoma", "Kisii"],
-        },
-        {
-            "name": "India", "code": "IN",
-            "admin1_label": "State", "admin2_label": "District", "admin3_label": "Block",
-            "level1": ["Andhra Pradesh", "Bihar", "Delhi", "Gujarat", "Karnataka",
-                       "Kerala", "Madhya Pradesh", "Maharashtra", "Odisha",
-                       "Punjab", "Rajasthan", "Tamil Nadu", "Telangana",
-                       "Uttar Pradesh", "West Bengal"],
-        },
-        {
-            "name": "Bhutan", "code": "BT",
-            "admin1_label": "Dzongkhag", "admin2_label": "Dungkhag", "admin3_label": "Gewog",
-            "level1": ["Bumthang", "Chhukha", "Dagana", "Gasa", "Haa", "Lhuntse",
-                       "Mongar", "Paro", "Pemagatshel", "Punakha", "Samdrup Jongkhar",
-                       "Samtse", "Sarpang", "Thimphu", "Trashigang", "Trashiyangtse",
-                       "Trongsa", "Tsirang", "Wangdue Phodrang", "Zhemgang"],
-        },
-        {
-            "name": "Sierra Leone", "code": "SL",
-            "admin1_label": "Province", "admin2_label": "District", "admin3_label": "Chiefdom",
-            "level1": ["Eastern Province", "Northern Province", "North West Province",
-                       "Southern Province", "Western Area"],
-        },
-        {
-            "name": "Tanzania", "code": "TZ",
-            "admin1_label": "Region", "admin2_label": "District", "admin3_label": "Ward",
-            "level1": ["Arusha", "Dar es Salaam", "Dodoma", "Geita", "Iringa",
-                       "Kagera", "Katavi", "Kigoma", "Kilimanjaro", "Lindi",
-                       "Manyara", "Mara", "Mbeya", "Morogoro", "Mtwara",
-                       "Mwanza", "Njombe", "Pwani", "Rukwa", "Ruvuma",
-                       "Shinyanga", "Simiyu", "Singida", "Songwe", "Tabora",
-                       "Tanga", "Zanzibar North", "Zanzibar South", "Zanzibar West"],
-        },
-        {
-            "name": "Rwanda", "code": "RW",
-            "admin1_label": "Province", "admin2_label": "District", "admin3_label": "Sector",
-            "level1": ["Kigali City", "Northern Province", "Southern Province",
-                       "Eastern Province", "Western Province"],
-        },
-        {
-            "name": "Saudi Arabia", "code": "SA",
-            "admin1_label": "Region", "admin2_label": "Governorate", "admin3_label": "District",
-            "level1": ["Riyadh", "Makkah", "Madinah", "Eastern Province", "Asir",
-                       "Tabuk", "Hail", "Northern Borders", "Jazan", "Najran",
-                       "Al Bahah", "Al Jawf", "Qassim"],
         },
     ]
 
@@ -406,172 +416,6 @@ def _seed_issue_taxonomy():
                 db.session.add(IssueSubcategory(
                     name=sub_name, category_id=cat.id, display_order=sub_order
                 ))
-    db.session.commit()
-
-
-def _seed_escalation_matrices():
-    from models import CountryEscalationMatrix, Country
-
-    SL_MATRIX = {
-        "levels": [
-            {
-                "name": "Medtronic Labs — Product",
-                "owner": "Product Engineering Team",
-                "tool": "Jira", "tool_color": "#dcfce7", "tool_text": "#166534",
-                "color": "#f9fafb", "border": "#d1d5db", "actions": []
-            },
-            {
-                "name": "Medtronic LABS Support",
-                "owner": "LABS Central Support",
-                "tool": "UV Desk / ITSM", "tool_color": "#dbeafe", "tool_text": "#1e40af",
-                "color": "#f9fafb", "border": "#d1d5db", "actions": []
-            },
-            {
-                "name": "LABS Ops Associates · Ministry of Health SL",
-                "owner": "LABS Ops Leads, MoH SL",
-                "tool": "UV Desk", "tool_color": "#dbeafe", "tool_text": "#1e40af",
-                "color": "#eff6ff", "border": "#3b82f6",
-                "actions": ["Access to tools and data", "Policy oversight"]
-            },
-            {
-                "name": "L2 — District Level Support / CHW Focal",
-                "owner": "District Health Information Officer",
-                "tool": "UV Desk", "tool_color": "#dbeafe", "tool_text": "#1e40af",
-                "color": "#dcfce7", "border": "#16a34a",
-                "actions": [
-                    "Use data for decision making",
-                    "Empower on decision making",
-                    "Train on tools and materials for better ownership",
-                    "Enable visibility and continuous collaboration"
-                ]
-            },
-            {
-                "name": "L1 — Chiefdom Level Support",
-                "owner": "Peer Supervisor / PHU Level Staff",
-                "tool": "WhatsApp / Forms", "tool_color": "#dcfce7", "tool_text": "#166534",
-                "color": "#fef3c7", "border": "#d97706",
-                "actions": [
-                    "Facilitating WhatsApp group creation",
-                    "Empower on resolving escalations",
-                    "Improve district visibility",
-                    "Use forms to complement issues escalated",
-                    "Monthly District CHW meetings for continuous support"
-                ]
-            },
-            {
-                "name": "Users — CHW · PHU Level Staff",
-                "owner": "Community Health Workers",
-                "tool": None,
-                "color": "#eff6ff", "border": "#3b82f6",
-                "actions": ["Continuous sharing of material based on arising issues"]
-            },
-        ],
-        "notes": "Sierra Leone uses a cascading district-to-national escalation. L1 is resolved at chiefdom level by peer supervisors. Issues unresolved within SLA escalate via UV Desk to district (L2), then to national LABS Ops and Ministry of Health SL."
-    }
-
-    KE_MATRIX = {
-        "streams": [
-            {
-                "name": "Ministry of Health — Afyangu (Safaricom)",
-                "header_color": "#166534",
-                "header_text": "#ffffff",
-                "logo_icon": "landmark",
-                "users": ["Kenyan Citizens"],
-                "levels": [
-                    {
-                        "name": "L3 — Engineers",
-                        "owner": "Senior Technical Engineers",
-                        "tool": None,
-                        "color": "#dcfce7", "border": "#16a34a",
-                        "actions": ["System-level fixes", "Architecture decisions"]
-                    },
-                    {
-                        "name": "L2 — Technical Desk",
-                        "owner": "Technical Support Team",
-                        "tool": None,
-                        "color": "#dcfce7", "border": "#16a34a",
-                        "actions": ["Technical troubleshooting", "Configuration issues"]
-                    },
-                    {
-                        "name": "L1 — Phone Support",
-                        "owner": "Phone Support Agents",
-                        "tool": "Calls", "tool_color": "#dcfce7", "tool_text": "#166534",
-                        "color": "#dcfce7", "border": "#16a34a",
-                        "actions": ["First contact resolution", "Basic troubleshooting", "Ticket logging"]
-                    }
-                ]
-            },
-            {
-                "name": "tiberbu — Facility Staff",
-                "header_color": "#7c3aed",
-                "header_text": "#ffffff",
-                "logo_icon": "hospital",
-                "users": ["Clinicians", "Nurses"],
-                "levels": [
-                    {
-                        "name": "Engineers L1",
-                        "owner": "Technical Engineering Level 1",
-                        "tool": None,
-                        "color": "#f3e8ff", "border": "#7c3aed",
-                        "actions": ["Advanced technical resolution", "Escalation to Product Team"]
-                    },
-                    {
-                        "name": "Junior Dev / ITOps — Implementation Team",
-                        "owner": "Implementation & DevOps Team",
-                        "tool": "Calls / WhatsApp", "tool_color": "#fef3c7", "tool_text": "#92400e",
-                        "color": "#f3e8ff", "border": "#7c3aed",
-                        "actions": ["Implementation support", "Configuration", "On-site escalation handling"]
-                    },
-                    {
-                        "name": "Sub-county ICT / HRIOs / ToTs",
-                        "owner": "Sub-county Health Records Officers, Trainers",
-                        "tool": "WhatsApp", "tool_color": "#dcfce7", "tool_text": "#166534",
-                        "color": "#f3e8ff", "border": "#7c3aed",
-                        "actions": ["First facility-level support", "Trainer assistance", "HRIO coordination"]
-                    },
-                    {
-                        "name": "Facility tiberbu Admins",
-                        "owner": "Facility-level tiberbu Administrators",
-                        "tool": None,
-                        "color": "#f3e8ff", "border": "#7c3aed",
-                        "actions": ["User account management", "Basic troubleshooting", "Issue documentation"]
-                    }
-                ]
-            }
-        ],
-        "shared_levels": [
-            {
-                "name": "Product Team — Medtronic Labs",
-                "owner": "Product Engineering, Mobile / Web Platform",
-                "tool": "Jira + ITSM", "tool_color": "#dbeafe", "tool_text": "#1e40af",
-                "color": "#f9fafb", "border": "#d1d5db",
-                "actions": ["Platform updates", "Bug fixes", "Feature delivery", "Both streams feed here"]
-            }
-        ],
-        "notes": "Kenya has two parallel support streams: Ministry of Health (Afyangu/Safaricom) serving Kenyan Citizens via phone support, and tiberbu serving clinical staff through facility admins and HRIOs. Both streams escalate to the shared Medtronic Labs Product Team via Jira."
-    }
-
-    sl = Country.query.filter_by(code="SL").first()
-    if sl:
-        existing = CountryEscalationMatrix.query.filter_by(country_id=sl.id).first()
-        if not existing:
-            db.session.add(CountryEscalationMatrix(
-                country_id=sl.id,
-                levels_json=SL_MATRIX["levels"],
-                notes=SL_MATRIX["notes"],
-            ))
-
-    ke = Country.query.filter_by(code="KE").first()
-    if ke:
-        existing = CountryEscalationMatrix.query.filter_by(country_id=ke.id).first()
-        if not existing:
-            db.session.add(CountryEscalationMatrix(
-                country_id=ke.id,
-                levels_json=KE_MATRIX.get("shared_levels", []),
-                streams_json=KE_MATRIX.get("streams", []),
-                notes=KE_MATRIX["notes"],
-            ))
-
     db.session.commit()
 
 
@@ -675,4 +519,4 @@ def _seed_superadmin():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(debug=True)
+    app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() in ("1", "true", "yes"))

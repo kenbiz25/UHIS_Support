@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+{% from "_macros.html" import page_header %}
+{% block content %}
+<div class="container-fluid py-4">
+  {{ page_header('Audit & Security Log', icon='fas fa-shield-alt text-warning', subtitle='Full record of authentication events and ticket changes.') }}
+
+  <!-- Login events -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span class="fw-semibold"><i class="fas fa-right-to-bracket me-2"></i>Authentication Events</span>
+      <form class="d-flex gap-2">
+        <input type="text" name="user" class="form-control form-control-sm" value="{{ user_f }}" placeholder="Filter by username" style="max-width:180px">
+        <select name="event" class="form-select form-select-sm" style="max-width:170px">
+          <option value="">All events</option>
+          <option value="login_success" {{ 'selected' if event_f=='login_success' }}>Login Success</option>
+          <option value="login_failed" {{ 'selected' if event_f=='login_failed' }}>Login Failed</option>
+          <option value="logout" {{ 'selected' if event_f=='logout' }}>Logout</option>
+          <option value="password_reset" {{ 'selected' if event_f=='password_reset' }}>Password Reset</option>
+        </select>
+        <button class="btn btn-sm btn-outline-primary">Filter</button>
+      </form>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover table-sm mb-0">
+        <thead class="table-light small text-uppercase">
+          <tr><th>Time</th><th>User</th><th>Event</th><th>IP Address</th><th>User Agent</th></tr>
+        </thead>
+        <tbody>
+          {% for e in login_events %}
+          <tr>
+            <td class="text-muted small">{{ e.created_at.strftime('%b %d %H:%M') }}</td>
+            <td class="fw-semibold">{{ e.username or '—' }}</td>
+            <td>
+              <span class="badge {{ 'bg-success' if e.event=='login_success' else 'bg-danger' if e.event=='login_failed' else 'bg-secondary' }}">
+                {{ e.event.replace('_',' ').title() }}
+              </span>
+            </td>
+            <td class="font-monospace small">{{ e.ip_address or '—' }}</td>
+            <td class="text-muted small" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ e.user_agent }}">
+              {{ (e.user_agent or '—')[:60] }}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center py-3 text-muted">No authentication events logged yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Ticket history events -->
+  <div class="card shadow-sm">
+    <div class="card-header fw-semibold"><i class="fas fa-history me-2"></i>Ticket Change History (recent 200)</div>
+    <div class="table-responsive">
+      <table class="table table-hover table-sm mb-0">
+        <thead class="table-light small text-uppercase">
+          <tr><th>Time</th><th>Ticket</th><th>Actor</th><th>Action</th><th>From</th><th>To</th></tr>
+        </thead>
+        <tbody>
+          {% for e in ticket_events %}
+          <tr>
+            <td class="text-muted small">{{ e.created_at.strftime('%b %d %H:%M') }}</td>
+            <td>
+              {% if e.ticket %}
+              <a href="{{ url_for('tickets.detail', ticket_id=e.ticket_id) }}" class="text-decoration-none">
+                <code class="small">{{ e.ticket.sl_no }}</code>
+              </a>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="small">{{ e.changed_by.full_name if e.changed_by else '—' }}</td>
+            <td class="small fw-semibold">{{ e.action }}</td>
+            <td class="text-muted small">{{ e.old_value or '—' }}</td>
+            <td class="small">{{ e.new_value or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center py-3 text-muted">No ticket history yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

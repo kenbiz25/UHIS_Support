@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Register User{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0"><i class="fas fa-user-plus text-primary me-2"></i>Register New User</h4>
+  <a href="{{ url_for('dashboard.users') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="fas fa-arrow-left me-1"></i>Back to Users
+  </a>
+</div>
+
+<div class="card shadow-sm border-0 rounded-3">
+  <div class="card-body p-4">
+    <form method="POST" action="{{ url_for('auth.register') }}">
+
+      <!-- Personal Info -->
+      <h6 class="fw-bold text-muted text-uppercase small mb-3">
+        <i class="fas fa-user me-1"></i>Personal Information
+      </h6>
+      <div class="row g-3 mb-4">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Full Name <span class="text-danger">*</span></label>
+          <input type="text" name="full_name" class="form-control" required placeholder="Full name">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
+          <input type="text" name="username" class="form-control" required placeholder="Unique username">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Email</label>
+          <input type="email" name="email" class="form-control" placeholder="user@example.com">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Contact / Phone</label>
+          <input type="text" name="contact" class="form-control" placeholder="Phone number">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Password <span class="text-danger">*</span></label>
+          <input type="password" name="password" class="form-control" required minlength="6">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Role <span class="text-danger">*</span></label>
+          <select name="role" id="roleSelect" class="form-select" required onchange="toggleAgentLevel()">
+            <option value="">-- Select Role --</option>
+            {% for role in roles %}
+              {% if current_user.role.value == 'Super Admin' or role.value != 'Super Admin' %}
+                <option value="{{ role.value }}">{{ role.value }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6" id="agentLevelField" style="display:none;">
+          <label class="form-label fw-semibold">Agent Tier</label>
+          <select name="agent_level" class="form-select">
+            <option value="1">L1 — First contact</option>
+            <option value="2">L2</option>
+            <option value="3">L3</option>
+            <option value="4">L4</option>
+          </select>
+          <div class="form-text">L1 handles first contact; tickets escalate up to L4 as needed.</div>
+        </div>
+      </div>
+
+      <!-- Location -->
+      <h6 class="fw-bold text-muted text-uppercase small mb-3 border-top pt-3">
+        <i class="fas fa-map-marker-alt me-1"></i>Location (Lowest Administrative Unit)
+      </h6>
+      <p class="text-muted small mb-3">
+        Select the user's location down to the most specific level available.
+        This enables accurate geographic analytics.
+      </p>
+      <div class="row g-3 mb-4">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Country <span class="text-danger">*</span></label>
+          <select name="country_id" id="countrySelect" class="form-select" required
+                  onchange="loadLevel1(this.value)">
+            <option value="">-- Select Country --</option>
+            {% for c in countries %}
+            <option value="{{ c.id }}"
+                    data-l1="{{ c.admin1_label }}"
+                    data-l2="{{ c.admin2_label }}"
+                    data-l3="{{ c.admin3_label }}">
+              {{ c.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold" id="l1Label">Region / Division</label>
+          <select name="admin1_id" id="admin1Select" class="form-select"
+                  onchange="loadLevel2(this.value)" disabled>
+            <option value="">-- Select country first --</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold" id="l2Label">District</label>
+          <select name="admin2_id" id="admin2Select" class="form-select"
+                  onchange="loadLevel3(this.value)" disabled>
+            <option value="">-- Select above first --</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold" id="l3Label">Sub-district</label>
+          <select name="admin3_id" id="admin3Select" class="form-select" disabled>
+            <option value="">-- Select above first --</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary fw-semibold">
+          <i class="fas fa-save me-1"></i>Create User
+        </button>
+        <a href="{{ url_for('dashboard.users') }}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const API = "/integrations/api/admin-units";
+
+function toggleAgentLevel() {
+  const isAgent = document.getElementById('roleSelect').value === 'Agent';
+  document.getElementById('agentLevelField').style.display = isAgent ? '' : 'none';
+}
+
+async function loadLevel1(countryId) {
+  const sel = document.getElementById('countrySelect');
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('l1Label').textContent = opt.dataset.l1 || 'Region';
+  document.getElementById('l2Label').textContent = opt.dataset.l2 || 'District';
+  document.getElementById('l3Label').textContent = opt.dataset.l3 || 'Sub-district';
+
+  const a1 = document.getElementById('admin1Select');
+  const a2 = document.getElementById('admin2Select');
+  const a3 = document.getElementById('admin3Select');
+  [a1, a2, a3].forEach(s => { s.innerHTML = '<option value="">-- Loading... --</option>'; s.disabled = true; });
+
+  if (!countryId) { a1.innerHTML = '<option value="">-- Select country first --</option>'; return; }
+  const data = await fetch(`${API}?level=1&country_id=${countryId}`).then(r => r.json());
+  a1.innerHTML = '<option value="">-- Select --</option>' + data.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+  a1.disabled = false;
+  a2.innerHTML = '<option value="">-- Select above first --</option>';
+  a3.innerHTML = '<option value="">-- Select above first --</option>';
+}
+
+async function loadLevel2(level1Id) {
+  const a2 = document.getElementById('admin2Select');
+  const a3 = document.getElementById('admin3Select');
+  [a2, a3].forEach(s => { s.innerHTML = '<option value="">-- Loading... --</option>'; s.disabled = true; });
+
+  if (!level1Id) { a2.innerHTML = '<option value="">-- Select above first --</option>'; return; }
+  const cid = document.getElementById('countrySelect').value;
+  const data = await fetch(`${API}?level=2&parent_id=${level1Id}&country_id=${cid}`).then(r => r.json());
+  a2.innerHTML = '<option value="">-- Select --</option>' + data.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+  a2.disabled = false;
+  a3.innerHTML = '<option value="">-- Select above first --</option>';
+}
+
+async function loadLevel3(level2Id) {
+  const a3 = document.getElementById('admin3Select');
+  a3.innerHTML = '<option value="">-- Loading... --</option>'; a3.disabled = true;
+
+  if (!level2Id) { a3.innerHTML = '<option value="">-- Select above first --</option>'; return; }
+  const cid = document.getElementById('countrySelect').value;
+  const data = await fetch(`${API}?level=3&parent_id=${level2Id}&country_id=${cid}`).then(r => r.json());
+  if (data.length === 0) {
+    a3.innerHTML = '<option value="">-- None available --</option>';
+  } else {
+    a3.innerHTML = '<option value="">-- Select --</option>' + data.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+    a3.disabled = false;
+  }
+}
+</script>
+{% endblock %}

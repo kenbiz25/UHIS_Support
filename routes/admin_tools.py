@@ -358,7 +358,7 @@ def integrations_page():
         return redirect(url_for("dashboard.main"))
     from flask import current_app
     wa_configured = bool(
-        current_app.config.get("WA_ACCESS_TOKEN") or
+        current_app.config.get("WHATSAPP_TOKEN") or
         current_app.config.get("TWILIO_ACCOUNT_SID")
     )
     email_configured = bool(current_app.config.get("IMAP_USER"))
@@ -623,11 +623,11 @@ def branding():
         return redirect(url_for("dashboard.main"))
     settings = BrandingSettings.get()
     if request.method == "POST":
-        settings.app_name = request.form.get("app_name", "Support Tickets").strip() or "Support Tickets"
+        settings.app_name = request.form.get("app_name", "Bangladesh UHIS").strip() or "Bangladesh UHIS"
         settings.tagline = request.form.get("tagline", "").strip()
         settings.logo_url = request.form.get("logo_url", "").strip() or None
         settings.favicon_url = request.form.get("favicon_url", "").strip() or None
-        settings.primary_color = request.form.get("primary_color", "#1d6fa4").strip()
+        settings.primary_color = request.form.get("primary_color", "#2514BE").strip()
         settings.nav_bg = request.form.get("nav_bg", "#1e2a38").strip()
         settings.support_email = request.form.get("support_email", "").strip() or None
         from datetime import datetime

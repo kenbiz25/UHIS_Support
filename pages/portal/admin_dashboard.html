@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% block title %}{{ 'My Tickets' if agent_mode else 'Admin — Ticket Queue' }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="fw-bold mb-0">
+      <i class="fas fa-{{ 'inbox' if agent_mode else 'list-check' }} text-primary me-2"></i>
+      {{ 'My Tickets' if agent_mode else 'Ticket Queue' }}
+      {% if agent_mode and current_user.agent_level %}
+        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 fw-normal ms-1" style="font-size:.75rem;">L{{ current_user.agent_level }}</span>
+      {% endif %}
+    </h4>
+    <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+      {% if scope_label %}
+        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 fw-normal" style="font-size:.8rem;">
+          <i class="fas fa-map-marker-alt me-1"></i>{{ scope_label }}
+        </span>
+        <span class="text-muted small">Showing tickets in your assigned region</span>
+      {% else %}
+        <span class="badge bg-secondary bg-opacity-10 text-secondary border fw-normal" style="font-size:.8rem;">
+          <i class="fas fa-globe me-1"></i>Global — all regions
+        </span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('tickets.export_excel', **request.args) }}" class="btn btn-outline-success btn-sm">
+      <i class="fas fa-file-excel me-1"></i>Excel
+    </a>
+    <a href="{{ url_for('tickets.export_csv', **request.args) }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-file-csv me-1"></i>CSV
+    </a>
+    <a href="{{ url_for('tickets.create') }}" class="btn btn-primary btn-sm">
+      <i class="fas fa-plus me-1"></i>New Ticket
+    </a>
+  </div>
+</div>
+
+<!-- Stats bar -->
+<div class="row g-2 mb-4">
+  {% set items = [
+    ('total',         'My Total' if agent_mode else 'Total',        'primary', 'ticket-alt'),
+    ('open',          'Open',         'danger',  'folder-open'),
+    ('in_progress',   'In Progress',  'warning', 'spinner'),
+    ('unassigned',    'In My Queue' if agent_mode else 'Unassigned',   'secondary','user-slash'),
+    ('critical',      'Critical',     'danger',  'fire'),
+    ('escalated',     'Escalated to Me' if agent_mode else 'Escalated',    'purple',  'arrow-up'),
+    ('resolved_today','Resolved Today','success','check-circle'),
+  ] %}
+  {% for key, label, color, icon in items %}
+  <div class="col-6 col-md-auto">
+    <div class="card border-0 shadow-sm rounded-3 h-100 {{ 'border-top border-3 border-danger' if key == 'critical' and stats[key] > 0 else '' }}" style="min-width:110px;">
+      <div class="card-body p-2 text-center">
+        <div class="fw-bold fs-5 {% if key == 'critical' and stats[key] > 0 %}text-danger{% elif key == 'escalated' and stats[key] > 0 %}text-warning{% endif %}">
+          {{ stats[key] }}
+        </div>
+        <div class="text-muted" style="font-size:.72rem;">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Filters -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body p-3">
+    <form method="GET" class="row g-2 align-items-end" id="filterForm">
+      <!-- Row 1: Search + Status + Priority + SLA + Date -->
+      <div class="col-md-3">
+        <input type="text" name="search" class="form-control form-control-sm"
+               placeholder="Search SL No, reporter, issue…" value="{{ filters.search }}">
+      </div>
+      <div class="col-md-2">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">All Statuses</option>
+          {% for s in statuses %}
+            <option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-1">
+        <select name="priority" class="form-select form-select-sm">
+          <option value="">All Priorities</option>
+          {% for p in priorities %}
+            <option value="{{ p }}" {% if filters.priority == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-1">
+        <select name="sla" class="form-select form-select-sm">
+          <option value="">Any SLA</option>
+          <option value="breached" {% if filters.sla == 'breached' %}selected{% endif %}>Breached</option>
+          <option value="warning" {% if filters.sla == 'warning' %}selected{% endif %}>Warning</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <input type="date" name="date_from" class="form-control form-control-sm"
+               value="{{ filters.date_from }}" title="From date" placeholder="From">
+      </div>
+      <div class="col-md-2">
+        <input type="date" name="date_to" class="form-control form-control-sm"
+               value="{{ filters.date_to }}" title="To date" placeholder="To">
+      </div>
+      <div class="col-md-1 d-flex gap-1">
+        <button type="submit" class="btn btn-primary btn-sm w-100">Filter</button>
+        <a href="{{ url_for('dashboard.main') }}" class="btn btn-outline-secondary btn-sm" title="Clear">
+          <i class="fas fa-times"></i>
+        </a>
+      </div>
+
+      <!-- Row 2: Agent filters + Country + Reporter -->
+      <div class="col-md-3">
+        <select name="assigned" class="form-select form-select-sm">
+          <option value="">Assigned — All agents</option>
+          <option value="mine" {% if filters.assigned == 'mine' %}selected{% endif %}>
+            Mine ({{ current_user.full_name }})
+          </option>
+          <option value="unassigned" {% if filters.assigned == 'unassigned' %}selected{% endif %}>Unassigned</option>
+          <optgroup label="── Specific agent ──">
+          {% for a in assignable %}
+            <option value="{{ a.id }}" {% if filters.assigned == a.id|string %}selected{% endif %}>
+              {{ a.full_name }} ({{ a.role.value }})
+            </option>
+          {% endfor %}
+          </optgroup>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select name="resolved_by" class="form-select form-select-sm">
+          <option value="">Resolved by — All agents</option>
+          {% for a in assignable %}
+            <option value="{{ a.id }}" {% if filters.resolved_by == a.id|string %}selected{% endif %}>
+              {{ a.full_name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="reporter_id" class="form-select form-select-sm">
+          <option value="">Raised by — All reporters</option>
+          {% for r in reporters %}
+            <option value="{{ r.id }}" {% if filters.reporter_id == r.id|string %}selected{% endif %}>
+              {{ r.full_name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="country_id" class="form-select form-select-sm">
+          <option value="">All Countries</option>
+          {% for c in countries %}
+            <option value="{{ c.id }}" {% if filters.country_id == c.id|string %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+    {% if saved_views %}
+    <div class="mt-2 d-flex flex-wrap gap-1 align-items-center">
+      <span class="text-muted small me-1"><i class="fas fa-bookmark me-1"></i>Saved:</span>
+      {% for v in saved_views %}
+      <a href="{{ url_for('dashboard.main') }}?{{ v.filters_json.items() | map('join', '=') | join('&') }}"
+         class="badge bg-{{ 'primary' if v.owner_id == current_user.id else 'secondary' }} text-decoration-none">
+        {{ v.name }}
+      </a>
+      {% endfor %}
+      <a href="{{ url_for('admin_tools.saved_views') }}" class="badge bg-light text-muted text-decoration-none border">
+        <i class="fas fa-cog me-1"></i>Manage
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Bulk action bar -->
+<div class="card border-0 shadow-sm rounded-3 mb-3" id="bulkBar" style="display:none!important;">
+  <div class="card-body py-2 px-4 d-flex align-items-center gap-3">
+    <span class="fw-semibold small text-primary"><span id="selectedCount">0</span> selected</span>
+    <form method="POST" action="{{ url_for('admin_tools.bulk_action') }}" id="bulkForm" class="d-flex align-items-center gap-2 flex-wrap">
+      <div id="bulkTicketIds"></div>
+      <select name="bulk_action" class="form-select form-select-sm" style="width:auto;" id="bulkActionSel">
+        <option value="">— Choose action —</option>
+        <option value="resolve">Mark Resolved</option>
+        <option value="close">Close</option>
+        <option value="assign">Assign to...</option>
+        <option value="set_priority">Set Priority...</option>
+        {% if all_tags %}
+        <option value="add_tag">Add Tag...</option>
+        <option value="remove_tag">Remove Tag...</option>
+        {% endif %}
+      </select>
+      <select name="assign_to" class="form-select form-select-sm d-none" id="bulkAssignSel" style="width:auto;">
+        <option value="">Select agent</option>
+        {% for u in assignable %}
+        <option value="{{ u.id }}">{{ u.full_name }}</option>
+        {% endfor %}
+      </select>
+      <select name="new_priority" class="form-select form-select-sm d-none" id="bulkPrioSel" style="width:auto;">
+        <option value="">Priority</option>
+        <option value="Low">Low</option>
+        <option value="Medium">Medium</option>
+        <option value="High">High</option>
+        <option value="Critical">Critical</option>
+        <option value="Urgent">Urgent</option>
+      </select>
+      <select name="bulk_tag_id" class="form-select form-select-sm d-none" id="bulkTagSel" style="width:auto;">
+        <option value="">Select tag</option>
+        {% for t in all_tags %}
+        <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearSelection()">Cancel</button>
+    </form>
+  </div>
+</div>
+
+<!-- Ticket table -->
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white py-2 px-4 border-bottom">
+    <span class="fw-semibold">
+      Tickets <span class="badge bg-secondary">{{ tickets|length }}</span>
+    </span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0" id="ticketTable">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3" style="width:36px;">
+            <input type="checkbox" id="selectAll" onchange="toggleAll(this)" class="form-check-input">
+          </th>
+          <th style="width:120px;">SL No</th>
+          <th>Reporter / District</th>
+          <th>Issue</th>
+          <th style="width:100px;">Priority</th>
+          <th style="width:120px;">Status</th>
+          <th class="d-none d-md-table-cell" style="width:160px;">Assigned To</th>
+          <th class="d-none d-md-table-cell" style="width:80px;">Esc.</th>
+          <th class="text-end pe-3" style="width:80px;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tickets %}
+        <tr class="{{ 'table-danger' if t.priority == 'Critical' and t.current_status not in ['Resolved','Closed'] else '' }}">
+          <td class="ps-3">
+            <input type="checkbox" class="form-check-input ticket-check" value="{{ t.id }}" onchange="updateBulk()">
+          </td>
+          <td>
+            <span class="fw-bold text-primary small">{{ t.sl_no or '#'~t.id }}</span>
+            {% if t.ticket_comments|length > 0 %}
+              <span class="ms-1" title="{{ t.ticket_comments|length }} comments">
+                <i class="fas fa-comment-dots text-muted" style="font-size:.7rem;"></i>
+              </span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="small fw-semibold">{{ t.issue_reporter_name or '—' }}</div>
+            <div class="text-muted d-none d-md-block" style="font-size:.75rem;">{{ t.district }}{% if t.upazila %} / {{ t.upazila }}{% endif %}</div>
+          </td>
+          <td>
+            <div class="small">{{ t.issue_type or '—' }}</div>
+            <div class="text-muted text-truncate" style="max-width:200px;font-size:.75rem;"
+                 title="{{ t.problem_details }}">{{ t.problem_details or '—' }}</div>
+          </td>
+          <td>
+            <span class="badge bg-{{ t.priority_badge() }}">{{ t.priority }}</span>
+            {% set sla_s = t.sla_status() %}
+            {% if sla_s == 'breached' %}
+              <span class="badge bg-danger ms-1" title="{{ t.sla_remaining_str() }}"><i class="fas fa-clock"></i></span>
+            {% elif sla_s == 'warning' %}
+              <span class="badge bg-warning text-dark ms-1" title="{{ t.sla_remaining_str() }}"><i class="fas fa-clock"></i></span>
+            {% endif %}
+          </td>
+          <td>
+            <!-- Inline status change -->
+            <form method="POST" action="{{ url_for('tickets.update', ticket_id=t.id) }}" class="d-inline">
+              <input type="hidden" name="priority" value="{{ t.priority }}">
+              <input type="hidden" name="escalation_level" value="{{ t.escalation_level }}">
+              <select name="current_status" class="form-select form-select-sm border-0 bg-transparent p-0"
+                      style="font-size:.8rem;" onchange="this.form.submit()"
+                      title="Change status">
+                {% for s in statuses %}
+                  <option value="{{ s }}" {% if t.current_status == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
+          <td class="d-none d-md-table-cell">
+            <!-- Inline assignment -->
+            <form method="POST" action="{{ url_for('tickets.update', ticket_id=t.id) }}" class="d-inline">
+              <input type="hidden" name="current_status" value="{{ t.current_status }}">
+              <input type="hidden" name="priority" value="{{ t.priority }}">
+              <input type="hidden" name="escalation_level" value="{{ t.escalation_level }}">
+              <select name="assigned_to_id" class="form-select form-select-sm border-0 bg-transparent p-0"
+                      style="font-size:.78rem;" onchange="this.form.submit()">
+                <option value="0" {% if not t.assigned_to_id %}selected{% endif %}>— Unassigned —</option>
+                {% for u in assignable if u.role.value != 'Agent' or (u.agent_level and u.agent_level >= t.required_agent_level()) %}
+                  <option value="{{ u.id }}" {% if t.assigned_to_id == u.id %}selected{% endif %}>
+                    {{ u.full_name }}{% if u.agent_level %} (L{{ u.agent_level }}){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
+          <td class="text-center d-none d-md-table-cell">
+            <span class="badge {{ 'bg-danger' if t.escalation_level > 0 else 'bg-light text-dark border' }}">{{ t.level_label() }}</span>
+          </td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('tickets.detail', ticket_id=t.id) }}"
+               class="btn btn-outline-primary btn-sm">View</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="9" class="text-center py-5 text-muted">
+            <i class="fas fa-inbox fa-2x mb-3 d-block opacity-25"></i>No tickets match your filters.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function updateBulk() {
+  const checked = document.querySelectorAll('.ticket-check:checked');
+  const bar = document.getElementById('bulkBar');
+  document.getElementById('selectedCount').textContent = checked.length;
+  bar.style.display = checked.length > 0 ? '' : 'none';
+  bar.style.setProperty('display', checked.length > 0 ? 'block' : 'none', 'important');
+  const ids = document.getElementById('bulkTicketIds');
+  ids.innerHTML = '';
+  checked.forEach(cb => {
+    const inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'ticket_ids'; inp.value = cb.value;
+    ids.appendChild(inp);
+  });
+}
+function toggleAll(master) {
+  document.querySelectorAll('.ticket-check').forEach(cb => cb.checked = master.checked);
+  updateBulk();
+}
+function clearSelection() {
+  document.querySelectorAll('.ticket-check, #selectAll').forEach(cb => cb.checked = false);
+  updateBulk();
+}
+document.getElementById('bulkActionSel').addEventListener('change', function() {
+  document.getElementById('bulkAssignSel').classList.toggle('d-none', this.value !== 'assign');
+  document.getElementById('bulkPrioSel').classList.toggle('d-none', this.value !== 'set_priority');
+  const tagSel = document.getElementById('bulkTagSel');
+  if (tagSel) tagSel.classList.toggle('d-none', this.value !== 'add_tag' && this.value !== 'remove_tag');
+});
+</script>
+{% endblock %}

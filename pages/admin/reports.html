@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+
+{% block extra_styles %}
+.chart-container { position: relative; height: 260px; }
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0"><i class="fas fa-chart-bar text-primary me-2"></i>Reports &amp; Analytics</h4>
+  <a href="{{ url_for('tickets.export_csv') }}" class="btn btn-outline-success btn-sm fw-semibold">
+    <i class="fas fa-file-csv me-1"></i>Export All CSV
+  </a>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm border-0 rounded-3 text-center p-3">
+      <div class="fs-3 fw-bold text-primary">{{ total }}</div>
+      <div class="text-muted small">Total Tickets</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm border-0 rounded-3 text-center p-3">
+      <div class="fs-3 fw-bold text-success">{{ resolved }}</div>
+      <div class="text-muted small">Resolved</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm border-0 rounded-3 text-center p-3">
+      <div class="fs-3 fw-bold text-info">{{ resolution_rate }}%</div>
+      <div class="text-muted small">Resolution Rate</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm border-0 rounded-3 text-center p-3">
+      <div class="fs-3 fw-bold text-warning">
+        {% if csat_avg %}{{ csat_avg }}<span style="font-size:.9rem;">★</span>{% else %}—{% endif %}
+      </div>
+      <div class="text-muted small">CSAT Score <span class="d-block" style="font-size:.7rem;">({{ csat_count }} ratings)</span></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm border-0 rounded-3 text-center p-3">
+      <div class="fs-3 fw-bold {{ 'text-success' if sla_rate and sla_rate >= 80 else 'text-danger' if sla_rate else 'text-muted' }}">
+        {% if sla_rate %}{{ sla_rate }}%{% else %}—{% endif %}
+      </div>
+      <div class="text-muted small">SLA Compliance</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm border-0 rounded-3 text-center p-3">
+      <div class="fs-3 fw-bold text-secondary">
+        {% if avg_resp_hours %}{{ avg_resp_hours }}h{% else %}—{% endif %}
+      </div>
+      <div class="text-muted small">Avg First Response</div>
+    </div>
+  </div>
+</div>
+
+<!-- Escalation Resolution Pyramid -->
+<div class="card shadow-sm border-0 rounded-3 mb-4">
+  <div class="card-header bg-transparent border-bottom py-3 px-4">
+    <div class="d-flex justify-content-between align-items-center">
+      <div>
+        <span class="fw-semibold"><i class="fas fa-layer-group text-primary me-2"></i>Issue Resolution by Escalation Level</span>
+        <div class="text-muted small mt-1">Pyramid shows ticket volume at each support tier — wider = more tickets handled at that level</div>
+      </div>
+      <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3 py-2">
+        L1 at base · L4 at apex
+      </span>
+    </div>
+  </div>
+  <div class="card-body p-4">
+    <div class="row align-items-center g-4">
+
+      <!-- Left: Pyramid visual -->
+      <div class="col-lg-7">
+        <div class="d-flex flex-column gap-2 py-2" style="min-height:240px;justify-content:flex-end;">
+          {% for level in pyramid | reverse %}
+          {% set pct = ((level.total / pyramid_max) * 100) | round | int %}
+          {% set pct_safe = [pct, 8] | max %}
+          <div class="d-flex align-items-center gap-3">
+            <!-- Level label -->
+            <div class="text-end text-muted" style="min-width:28px;font-size:.75rem;font-weight:700;">
+              {{ level.level.split('—')[0].strip() }}
+            </div>
+            <!-- Centered pyramid bar -->
+            <div class="flex-grow-1 d-flex justify-content-center">
+              <div style="width:{{ pct_safe }}%;min-width:40px;
+                          background:{{ level.color }};
+                          height:52px;
+                          border-radius:6px;
+                          display:flex;align-items:center;justify-content:center;
+                          transition:width .6s ease;
+                          box-shadow:0 2px 8px {{ level.color }}44;
+                          position:relative;">
+                <div class="text-white fw-bold" style="font-size:.9rem;text-shadow:0 1px 2px rgba(0,0,0,.3)">
+                  {{ level.total }}
+                </div>
+                {% if level.resolved > 0 %}
+                <!-- Resolved portion overlay -->
+                <div style="position:absolute;left:0;top:0;height:100%;
+                             width:{{ ((level.resolved / level.total) * 100) | round | int if level.total else 0 }}%;
+                             background:rgba(255,255,255,.22);border-radius:6px 0 0 6px;
+                             pointer-events:none;"></div>
+                {% endif %}
+              </div>
+            </div>
+            <!-- Count + resolved -->
+            <div style="min-width:110px;font-size:.75rem;">
+              <span class="fw-semibold">{{ level.total }} tickets</span>
+              {% if level.resolved %}
+              <span class="text-success ms-1">({{ level.resolved }} resolved)</span>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+          <!-- Base label -->
+          <div class="text-center text-muted mt-2" style="font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;">
+            ◀ wider = more tickets handled at this level ▶
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Stats table -->
+      <div class="col-lg-5">
+        <table class="table table-sm mb-0">
+          <thead class="table-light small text-uppercase">
+            <tr>
+              <th>Level</th>
+              <th>Owner</th>
+              <th class="text-center">Total</th>
+              <th class="text-center">Resolved</th>
+              <th class="text-center">Rate</th>
+            </tr>
+          </thead>
+          <tbody class="small">
+            {% for level in pyramid %}
+            <tr>
+              <td>
+                <span class="badge bg-{{ level.bg }} bg-opacity-{{ '100' if loop.index == 4 else '75' }}"
+                      style="font-size:.7rem;{% if level.bg == 'warning' %}color:#1f2937{% endif %}">
+                  {{ level.level.split('—')[0].strip() }}
+                </span>
+              </td>
+              <td class="text-muted">{{ level.owner }}</td>
+              <td class="text-center fw-semibold">{{ level.total }}</td>
+              <td class="text-center text-success fw-semibold">{{ level.resolved }}</td>
+              <td class="text-center">
+                {% if level.total > 0 %}
+                  {% set rate = ((level.resolved / level.total) * 100) | round | int %}
+                  <span class="{{ 'text-success' if rate >= 70 else 'text-warning' if rate >= 40 else 'text-danger' }}">
+                    {{ rate }}%
+                  </span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            <!-- Totals row -->
+            <tr class="table-light fw-semibold">
+              <td colspan="2" class="text-muted">All Levels</td>
+              <td class="text-center">{{ pyramid | sum(attribute='total') }}</td>
+              <td class="text-center text-success">{{ pyramid | sum(attribute='resolved') }}</td>
+              <td class="text-center">
+                {% set grand_total = pyramid | sum(attribute='total') %}
+                {% set grand_resolved = pyramid | sum(attribute='resolved') %}
+                {% if grand_total > 0 %}
+                  {{ ((grand_resolved / grand_total) * 100) | round | int }}%
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Legend -->
+        <div class="mt-3 p-2 rounded-2 border small text-muted">
+          <i class="fas fa-info-circle me-1"></i>
+          <strong>Reading the pyramid:</strong> A healthy support model has a <span class="text-success fw-semibold">wide L1 base</span>
+          (most issues resolved at first contact) and a <span class="text-danger fw-semibold">narrow L4 apex</span>
+          (few issues require executive escalation). The light overlay on each bar shows the resolved fraction.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts row 1 -->
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-light py-2 px-4 fw-semibold">Tickets by Status</div>
+      <div class="card-body p-4">
+        <div class="chart-container">
+          <canvas id="statusChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-light py-2 px-4 fw-semibold">Tickets by Priority</div>
+      <div class="card-body p-4">
+        <div class="chart-container">
+          <canvas id="priorityChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts row 2 -->
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-light py-2 px-4 fw-semibold">Top 10 Districts</div>
+      <div class="card-body p-4">
+        <div class="chart-container">
+          <canvas id="districtChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-light py-2 px-4 fw-semibold">Tickets by Platform</div>
+      <div class="card-body p-4">
+        <div class="chart-container">
+          <canvas id="platformChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Issue type table -->
+<div class="card shadow-sm border-0 rounded-3">
+  <div class="card-header bg-light py-2 px-4 fw-semibold">Tickets by Issue Type</div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-4">Issue Type</th>
+          <th>Count</th>
+          <th>Share</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for issue_type, count in issue_type_data %}
+        <tr>
+          <td class="ps-4">{{ issue_type or '—' }}</td>
+          <td><strong>{{ count }}</strong></td>
+          <td style="width:40%">
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress flex-grow-1" style="height:8px;">
+                <div class="progress-bar bg-primary"
+                     style="width:{{ ((count / total) * 100)|round(1) if total else 0 }}%"></div>
+              </div>
+              <small class="text-muted">{{ ((count / total) * 100)|round(1) if total else 0 }}%</small>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-center py-4 text-muted">No data yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const STATUS_COLORS = {
+  'Open': '#dc3545', 'In Progress': '#ffc107', 'Pending': '#0dcaf0',
+  'Resolved': '#198754', 'Closed': '#6c757d'
+};
+const PRIORITY_COLORS = {
+  'Critical': '#dc3545', 'High': '#fd7e14', 'Medium': '#0dcaf0', 'Low': '#198754'
+};
+
+function buildChart(id, type, labels, data, colorMap) {
+  const colors = labels.map(l => colorMap && colorMap[l] ? colorMap[l] : '#2514BE');
+  new Chart(document.getElementById(id), {
+    type,
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderRadius: 6, borderWidth: 1 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: type === 'doughnut' || type === 'pie' ? 'right' : 'top' } }
+    }
+  });
+}
+
+buildChart('statusChart', 'doughnut',
+  {{ status_data | map(attribute=0) | list | tojson }},
+  {{ status_data | map(attribute=1) | list | tojson }},
+  STATUS_COLORS);
+
+buildChart('priorityChart', 'pie',
+  {{ priority_data | map(attribute=0) | list | tojson }},
+  {{ priority_data | map(attribute=1) | list | tojson }},
+  PRIORITY_COLORS);
+
+buildChart('districtChart', 'bar',
+  {{ district_data | map(attribute=0) | list | tojson }},
+  {{ district_data | map(attribute=1) | list | tojson }},
+  null);
+
+buildChart('platformChart', 'doughnut',
+  {{ platform_data | map(attribute=0) | list | tojson }},
+  {{ platform_data | map(attribute=1) | list | tojson }},
+  null);
+</script>
+{% endblock %}

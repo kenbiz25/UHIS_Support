@@ -2,6 +2,10 @@
 # Local permissions config — machine-specific, never commit
 .claude/
 
+# Runtime lock file (guards against multiple worker processes double-starting
+# the background scheduler) — regenerated on every boot, never commit
+.scheduler.lock
+
 # ── Environment & Secrets ───────────────────────────────────────────────────────
 .env
 .env.local
@@ -63,8 +67,6 @@ backups/
 # ── Seed / Demo Data ───────────────────────────────────────────────────────────
 # These scripts contain organisation-specific data and are not needed in prod
 seed_demo.py
-seed_kenya_locations.py
-seed_escalation_matrices.py
 run_seed.py
 
 # ── Celery ─────────────────────────────────────────────────────────────────────

@@ -147,7 +147,7 @@ def agent_session(session_id):
     ).update({"is_read": True})
     db.session.commit()
     agents = User.query.filter(
-        User.role.in_([Role.DSO, Role.ADMIN, Role.SUPER_ADMIN]), User.is_active == True
+        User.role.in_([Role.AGENT, Role.ADMIN, Role.SUPER_ADMIN]), User.is_active == True
     ).all()
     return render_template("chat/agent_session.html", session=session, agents=agents)
 

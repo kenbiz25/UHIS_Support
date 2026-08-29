@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="{{ session.get('lang', 'en') }}" id="htmlRoot">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ branding.app_name if branding else 'Bangladesh UHIS' }}{% endblock %}</title>
+
+  {% set app_title = branding.app_name if branding else 'Bangladesh UHIS' %}
+  {% set app_tagline = branding.tagline if branding and branding.tagline else 'Multi-channel support platform' %}
+  {% set og_image_url = request.url_root.rstrip('/') + url_for('static', filename='images/og-image.png') %}
+
+  {% if branding and branding.favicon_url %}
+  <link rel="icon" href="{{ branding.favicon_url }}">
+  {% else %}
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='images/favicon-16.png') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32.png') }}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/favicon-192.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
+  {% endif %}
+
+  <!-- Open Graph / link-preview card (Slack, WhatsApp, Teams, iMessage, LinkedIn) -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ app_title }}">
+  <meta property="og:description" content="{{ app_tagline }}">
+  <meta property="og:image" content="{{ og_image_url }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ app_title }}">
+  <meta name="twitter:description" content="{{ app_tagline }}">
+  <meta name="twitter:image" content="{{ og_image_url }}">
+  <!-- Prevent dark-mode flash -->
+  <script>
+  (function(){
+    try { var t=localStorage.getItem('theme')||'light'; } catch(e){ var t='light'; }
+    document.documentElement.setAttribute('data-bs-theme',t);
+  })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <style>
+    :root { --sidebar-bg: #1e2a38; --nav-bg: {{ branding.nav_bg if branding and branding.nav_bg else 'var(--ml-brand, #2514BE)' }}; }
+    {% block extra_styles %}{% endblock %}
+  </style>
+</head>
+<body>
+
+<a href="#main-content" class="skip-nav">Skip to main content</a>
+
+{% if current_user.is_authenticated %}
+<!-- Navbar with dropdown navigation -->
+<nav class="navbar fixed-top" style="background:var(--nav-bg, #1e2a38); height:56px;" aria-label="Main navigation">
+  <div class="container-fluid">
+
+    <!-- Hamburger — opens offcanvas on mobile/tablet -->
+    <button class="btn btn-link text-white d-xxl-none me-2 p-0" type="button"
+            data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-label="Open navigation menu">
+      <i class="fas fa-bars fa-lg"></i>
+    </button>
+
+    <!-- Brand -->
+    <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="{{ url_for('dashboard.main') }}">
+      {% if branding and branding.logo_url %}
+        <img src="{{ branding.logo_url }}" alt="{{ branding.app_name }}" style="max-height:32px; max-width:120px; object-fit:contain;">
+      {% else %}
+        <img src="{{ url_for('static', filename='images/spice-logo.png') }}" alt="SPICE" style="height:28px; width:auto; object-fit:contain;">
+        <span class="d-none d-sm-inline" style="width:1px; height:22px; background:rgba(255,255,255,.25);"></span>
+        <img src="{{ url_for('static', filename='images/brac-logo.png') }}" alt="BRAC" class="d-none d-sm-inline" style="height:22px; width:auto; object-fit:contain;">
+      {% endif %}
+    </a>
+
+    <!-- Desktop nav items (hidden below xxl = 1400px — this row is wide with every
+         dropdown for admin roles; narrower screens use the hamburger/offcanvas
+         instead of risking the row wrapping onto a 2nd line, see app.css) -->
+    <ul class="navbar-nav d-none d-xxl-flex align-items-center gap-1 ms-3 me-auto">
+
+      <li class="nav-item">
+        <a class="nav-link text-light {% if request.endpoint == 'dashboard.main' %}fw-semibold{% endif %}"
+           href="{{ url_for('dashboard.main') }}">
+          <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+        </a>
+      </li>
+
+      {% if current_user.role.value != 'Viewer' %}
+      <li class="nav-item dropdown">
+        <a class="nav-link text-light dropdown-toggle
+           {% if request.endpoint in ('tickets.create', 'notifs.inbox') or (request.endpoint and request.endpoint.startswith('kb.') and 'admin' not in request.endpoint) %}fw-semibold{% endif %}"
+           href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+          <i class="fas fa-ticket-alt me-1"></i>Tickets
+        </a>
+        <ul class="dropdown-menu dropdown-menu-dark">
+          <li><a class="dropdown-item" href="{{ url_for('tickets.create') }}"><i class="fas fa-plus-circle me-2 text-success"></i>New Ticket <kbd class="ms-2">N</kbd></a></li>
+          <li><a class="dropdown-item" href="{{ url_for('notifs.inbox') }}">
+            <i class="fas fa-bell me-2 text-warning"></i>Notifications
+            {% if unread_notifications > 0 %}<span class="badge bg-danger ms-1">{{ unread_notifications }}</span>{% endif %}
+          </a></li>
+          <li><a class="dropdown-item" href="{{ url_for('kb.kb_index') }}"><i class="fas fa-question-circle me-2 text-info"></i>Help Center</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item">
+        <a class="nav-link text-light {% if request.endpoint == 'dashboard.unified_inbox' %}fw-semibold{% endif %}"
+           href="{{ url_for('dashboard.unified_inbox') }}">
+          <i class="fas fa-inbox me-1"></i>Inbox
+        </a>
+      </li>
+      {% endif %}
+
+      {% if current_user.can_view_reports() %}
+      <li class="nav-item dropdown">
+        <a class="nav-link text-light dropdown-toggle
+           {% if request.endpoint in ('dashboard.analytics', 'dashboard.reports') %}fw-semibold{% endif %}"
+           href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+          <i class="fas fa-chart-line me-1"></i>Analytics
+        </a>
+        <ul class="dropdown-menu dropdown-menu-dark">
+          <li><a class="dropdown-item" href="{{ url_for('dashboard.analytics') }}"><i class="fas fa-chart-line me-2 text-primary"></i>Analytics</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('dashboard.reports') }}"><i class="fas fa-chart-bar me-2 text-primary"></i>Reports <kbd class="ms-2">R</kbd></a></li>
+          <li><hr class="dropdown-divider border-secondary"></li>
+          <li><a class="dropdown-item" href="{{ url_for('tickets.export_excel') }}"><i class="fas fa-file-excel me-2 text-success"></i>Export Excel</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('tickets.export_csv') }}"><i class="fas fa-file-csv me-2 text-success"></i>Export CSV</a></li>
+        </ul>
+      </li>
+      {% endif %}
+
+      {% if current_user.can_update_tickets() %}
+      <li class="nav-item dropdown">
+        <a class="nav-link text-light dropdown-toggle
+           {% if request.endpoint in ('admin_tools.canned_responses', 'admin_tools.saved_views') %}fw-semibold{% endif %}"
+           href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+          <i class="fas fa-tools me-1"></i>Tools
+        </a>
+        <ul class="dropdown-menu dropdown-menu-dark">
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.canned_responses') }}"><i class="fas fa-comment-dots me-2 text-info"></i>Canned Replies</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.saved_views') }}"><i class="fas fa-bookmark me-2 text-warning"></i>Saved Views</a></li>
+        </ul>
+      </li>
+      {% endif %}
+
+      {% if current_user.is_admin() %}
+      <li class="nav-item dropdown">
+        <a class="nav-link text-light dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+          <i class="fas fa-cog me-1"></i>Admin
+        </a>
+        <ul class="dropdown-menu dropdown-menu-dark">
+          <li><h6 class="dropdown-header">Users</h6></li>
+          <li><a class="dropdown-item" href="{{ url_for('dashboard.users') }}"><i class="fas fa-users me-2"></i>Users</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('auth.register') }}"><i class="fas fa-user-plus me-2"></i>Add User</a></li>
+          <li><hr class="dropdown-divider border-secondary"></li>
+          <li><h6 class="dropdown-header">Configuration</h6></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.tags') }}"><i class="fas fa-tags me-2"></i>Tags</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.custom_fields') }}"><i class="fas fa-sliders-h me-2"></i>Custom Fields</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.sla') }}"><i class="fas fa-clock me-2"></i>SLA Policies</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.taxonomy') }}"><i class="fas fa-sitemap me-2"></i>Issue Taxonomy</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('automation.index') }}"><i class="fas fa-robot me-2"></i>Automation Rules</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('kb.kb_admin_articles') }}"><i class="fas fa-book me-2"></i>Knowledge Base</a></li>
+          <li><hr class="dropdown-divider border-secondary"></li>
+          <li><h6 class="dropdown-header">System</h6></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.branding') }}"><i class="fas fa-paint-brush me-2"></i>Branding</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('dashboard.audit_log') }}"><i class="fas fa-shield-alt me-2"></i>Audit Log</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item dropdown">
+        <a class="nav-link text-light dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+          <i class="fas fa-plug me-1"></i>Integrations
+        </a>
+        <ul class="dropdown-menu dropdown-menu-dark">
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.integrations_page') }}"><i class="fas fa-plug me-2"></i>Integrations</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.manage_locations') }}"><i class="fas fa-globe me-2"></i>Locations</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_tools.escalation_matrices') }}"><i class="fas fa-sitemap me-2"></i>Escalation Matrices</a></li>
+          <li><hr class="dropdown-divider border-secondary"></li>
+          <li><h6 class="dropdown-header">Channels</h6></li>
+          <li><a class="dropdown-item" href="{{ url_for('webhooks.whatsapp_inbox') }}"><i class="fab fa-whatsapp me-2 text-success"></i>WhatsApp Inbox</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('nudges.broadcasts') }}"><i class="fas fa-bullhorn me-2 text-primary"></i>Broadcasts</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('nudges.csat_dashboard') }}"><i class="fas fa-star me-2 text-warning"></i>CSAT Ratings</a></li>
+        </ul>
+      </li>
+      {% endif %}
+
+    </ul>
+
+    <!-- Right side utilities -->
+    <div class="d-flex align-items-center gap-2 ms-auto">
+      <span class="text-light small d-none d-xl-inline">
+        <i class="fas fa-user-circle me-1 text-info"></i>{{ current_user.full_name }}
+        <span class="badge bg-info text-white ms-1">{{ current_user.role.value }}</span>
+      </span>
+      <div class="dropdown">
+        <button class="theme-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
+                title="Change language" aria-label="Change language" style="font-size:.8rem;">
+          {{ 'বাং' if session.get('lang') == 'bn' else 'EN' }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item {{ 'active' if session.get('lang', 'en') == 'en' else '' }}"
+                 href="{{ url_for('auth.set_language', lang='en') }}?next={{ request.path|urlencode }}">English</a></li>
+          <li><a class="dropdown-item {{ 'active' if session.get('lang') == 'bn' else '' }}"
+                 href="{{ url_for('auth.set_language', lang='bn') }}?next={{ request.path|urlencode }}">বাংলা (Bengali)</a></li>
+        </ul>
+      </div>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark/light mode" title="Toggle dark mode (Alt+T)">
+        <i class="fas fa-moon" id="themeIcon"></i>
+      </button>
+      <button class="theme-toggle d-none d-md-inline" data-bs-toggle="modal" data-bs-target="#shortcutsModal"
+              aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
+        <i class="fas fa-keyboard"></i>
+      </button>
+      <a href="{{ url_for('notifs.inbox') }}" class="notif-bell position-relative" title="Notifications" aria-label="Notifications">
+        <i class="fas fa-bell text-light"></i>
+        {% if unread_notifications > 0 %}
+          <span class="notif-count" aria-label="{{ unread_notifications }} unread notifications">{{ unread_notifications if unread_notifications < 100 else '99+' }}</span>
+        {% endif %}
+      </a>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+          <i class="fas fa-ellipsis-v"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="{{ url_for('auth.preferences') }}"><i class="fas fa-sliders-h me-2"></i>Preferences</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+</nav>
+
+<!-- Mobile / tablet offcanvas nav (all items, opens via hamburger) -->
+<div class="offcanvas offcanvas-start" tabindex="-1" id="mobileSidebar" aria-labelledby="mobileSidebarLabel"
+     style="background:var(--nav-bg, #2514BE); max-width:280px;">
+  <div class="offcanvas-header border-bottom border-secondary">
+    <h6 class="offcanvas-title text-white d-flex align-items-center gap-2" id="mobileSidebarLabel">
+      <img src="{{ url_for('static', filename='images/spice-logo.png') }}" alt="SPICE" style="height:24px; width:auto;">
+      <img src="{{ url_for('static', filename='images/brac-logo.png') }}" alt="BRAC" style="height:18px; width:auto;">
+    </h6>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+  <div class="offcanvas-body p-0">
+    <ul class="nav flex-column mt-1">
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('dashboard.main') }}"><i class="fas fa-tachometer-alt me-2"></i>Dashboard</a></li>
+      {% if current_user.role.value != 'Viewer' %}
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('tickets.create') }}"><i class="fas fa-plus-circle me-2"></i>New Ticket</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('dashboard.unified_inbox') }}"><i class="fas fa-inbox me-2"></i>Inbox</a></li>
+      {% endif %}
+      <li class="nav-item">
+        <a class="nav-link text-light" href="{{ url_for('notifs.inbox') }}">
+          <i class="fas fa-bell me-2"></i>Notifications
+          {% if unread_notifications > 0 %}<span class="badge bg-danger ms-1">{{ unread_notifications }}</span>{% endif %}
+        </a>
+      </li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('kb.kb_index') }}"><i class="fas fa-question-circle me-2"></i>Help Center</a></li>
+      {% if current_user.can_view_reports() %}
+      <li class="nav-item"><div class="mobile-nav-section">Analytics</div></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('dashboard.analytics') }}"><i class="fas fa-chart-line me-2"></i>Analytics</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('dashboard.reports') }}"><i class="fas fa-chart-bar me-2"></i>Reports</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('tickets.export_excel') }}"><i class="fas fa-file-excel me-2"></i>Export Excel</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('tickets.export_csv') }}"><i class="fas fa-file-csv me-2"></i>Export CSV</a></li>
+      {% endif %}
+      {% if current_user.can_update_tickets() %}
+      <li class="nav-item"><div class="mobile-nav-section">Tools</div></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.canned_responses') }}"><i class="fas fa-comment-dots me-2"></i>Canned Replies</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.saved_views') }}"><i class="fas fa-bookmark me-2"></i>Saved Views</a></li>
+      {% endif %}
+      {% if current_user.is_admin() %}
+      <li class="nav-item"><div class="mobile-nav-section">Admin</div></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('dashboard.users') }}"><i class="fas fa-users me-2"></i>Users</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('auth.register') }}"><i class="fas fa-user-plus me-2"></i>Add User</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.tags') }}"><i class="fas fa-tags me-2"></i>Tags</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.custom_fields') }}"><i class="fas fa-sliders-h me-2"></i>Custom Fields</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.sla') }}"><i class="fas fa-clock me-2"></i>SLA Policies</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.taxonomy') }}"><i class="fas fa-sitemap me-2"></i>Issue Taxonomy</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('automation.index') }}"><i class="fas fa-robot me-2"></i>Automation Rules</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('kb.kb_admin_articles') }}"><i class="fas fa-book me-2"></i>Knowledge Base</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.branding') }}"><i class="fas fa-paint-brush me-2"></i>Branding</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('dashboard.audit_log') }}"><i class="fas fa-shield-alt me-2"></i>Audit Log</a></li>
+      <li class="nav-item"><div class="mobile-nav-section">Integrations</div></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.integrations_page') }}"><i class="fas fa-plug me-2"></i>Integrations</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.manage_locations') }}"><i class="fas fa-globe me-2"></i>Locations</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('admin_tools.escalation_matrices') }}"><i class="fas fa-sitemap me-2"></i>Escalation Matrices</a></li>
+      <li class="nav-item"><div class="mobile-nav-section">Channels</div></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('webhooks.whatsapp_inbox') }}"><i class="fab fa-whatsapp me-2"></i>WhatsApp Inbox</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('nudges.broadcasts') }}"><i class="fas fa-bullhorn me-2"></i>Broadcasts</a></li>
+      <li class="nav-item"><a class="nav-link text-light" href="{{ url_for('nudges.csat_dashboard') }}"><i class="fas fa-star me-2"></i>CSAT Ratings</a></li>
+      {% endif %}
+    </ul>
+  </div>
+</div>
+
+<!-- Main content -->
+<div class="main-content p-4" id="mainWrapper">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+              <i class="fas fa-{% if category == 'success' %}check-circle{% elif category in ('danger','error') %}exclamation-circle{% else %}info-circle{% endif %} me-2"></i>
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>{# /#mainWrapper #}
+
+<!-- Keyboard shortcuts modal -->
+<div class="modal fade" id="shortcutsModal" tabindex="-1" aria-labelledby="shortcutsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title" id="shortcutsModalLabel"><i class="fas fa-keyboard me-2"></i>Keyboard Shortcuts</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><td><kbd>N</kbd></td><td>New Ticket</td></tr>
+            <tr><td><kbd>I</kbd></td><td>Inbox</td></tr>
+            <tr><td><kbd>D</kbd></td><td>Dashboard</td></tr>
+            <tr><td><kbd>R</kbd></td><td>Reports</td></tr>
+            <tr><td><kbd>/</kbd></td><td>Focus Search</td></tr>
+            <tr><td><kbd>Alt+T</kbd></td><td>Toggle Dark Mode</td></tr>
+            <tr><td><kbd>?</kbd></td><td>Show This Help</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% elif request.endpoint and request.endpoint.startswith('kb.') %}
+<!-- Public Knowledge Base pages: not logged in, but these need the full-width
+     content layout (not the narrow auth-card one below) - a lightweight
+     public navbar instead of the full authenticated menu. -->
+<nav class="navbar fixed-top" style="background:var(--nav-bg, #1e2a38); height:56px;" aria-label="Main navigation">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="{{ url_for('kb.kb_index') }}">
+      {% if branding and branding.logo_url %}
+        <img src="{{ branding.logo_url }}" alt="{{ branding.app_name }}" style="max-height:32px; max-width:120px; object-fit:contain;">
+      {% else %}
+        <img src="{{ url_for('static', filename='images/spice-logo.png') }}" alt="SPICE" style="height:28px; width:auto; object-fit:contain;">
+        <span class="d-none d-sm-inline" style="width:1px; height:22px; background:rgba(255,255,255,.25);"></span>
+        <img src="{{ url_for('static', filename='images/brac-logo.png') }}" alt="BRAC" class="d-none d-sm-inline" style="height:22px; width:auto; object-fit:contain;">
+      {% endif %}
+    </a>
+    <a href="{{ url_for('auth.login') }}" class="btn btn-sm btn-outline-light">
+      <i class="fas fa-right-to-bracket me-1"></i>Login
+    </a>
+  </div>
+</nav>
+<div class="main-content p-4" id="mainWrapper">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+          {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+  {{ self.content() }}
+</div>{# /#mainWrapper #}
+{% else %}
+{% block auth_layout %}
+<div class="d-flex align-items-center justify-content-center min-vh-100">
+  <div class="w-100" style="max-width:440px;">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show mx-3" role="alert">
+            {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block auth_content %}{% endblock %}
+  </div>
+</div>
+{% endblock %}
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% block extra_scripts %}{% endblock %}
+
+{% if current_user.is_authenticated %}
+<script>
+window.APP_URLS = {
+  createTicket: '{{ url_for("tickets.create") }}',
+  unifiedInbox: '{{ url_for("dashboard.unified_inbox") }}',
+  dashboard:    '{{ url_for("dashboard.main") }}',
+  reports:      '{{ url_for("dashboard.reports") }}',
+  notifCount:   '{{ url_for("notifs.api_count") }}',
+};
+</script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endif %}
+
+<!-- Support Widget (self-service) -->
+<script src="{{ url_for('static', filename='widget/support-widget.js') }}"
+        data-base-url="{{ request.host_url.rstrip('/') }}"
+        data-app="Admin Portal"
+        data-primary-color="{{ branding.primary_color if branding else '#2514BE' }}"
+        data-whatsapp="{{ support_whatsapp_number }}">
+</script>
+</body>
+</html>

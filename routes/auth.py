@@ -1,11 +1,12 @@
 from urllib.parse import urlparse, urljoin
 
-from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
+from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, session
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from models import db, User, Role, Country, AdminLevel1, AdminLevel2, AdminLevel3
+from models import db, User, Role, Country, AdminLevel1, AdminLevel2, AdminLevel3, LoginAuditLog
 from utils import generate_reset_token, verify_reset_token, send_reset_email
-from extensions import limiter
+from extensions import limiter, oauth
+from translation import SUPPORTED_LANGUAGES
 
 
 def _is_safe_redirect(target):
@@ -28,6 +29,7 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and user.is_active and check_password_hash(user.password_hash, password):
             login_user(user, remember=request.form.get("remember") == "on")
+            session["lang"] = user.language or "en"
             from models import LoginAuditLog, db
             db.session.add(LoginAuditLog(
                 user_id=user.id, username=user.username,
@@ -49,6 +51,83 @@ def login():
         db.session.commit()
         flash("Invalid username or password.", "danger")
     return render_template("login.html")
+
+
+@auth.route("/login/oauth/<provider>")
+@limiter.limit("10 per minute; 30 per hour")
+def oauth_login(provider):
+    if provider not in ("google", "microsoft"):
+        flash("Unknown sign-in provider.", "danger")
+        return redirect(url_for("auth.login"))
+    client = oauth.create_client(provider)
+    if not client:
+        flash(f"{provider.title()} sign-in isn't configured yet. Contact your administrator.", "warning")
+        return redirect(url_for("auth.login"))
+    redirect_uri = url_for("auth.oauth_callback", provider=provider, _external=True)
+    return client.authorize_redirect(redirect_uri)
+
+
+@auth.route("/login/oauth/<provider>/callback")
+def oauth_callback(provider):
+    client = oauth.create_client(provider)
+    if not client:
+        flash("Unknown sign-in provider.", "danger")
+        return redirect(url_for("auth.login"))
+
+    token = client.authorize_access_token()
+
+    if provider == "google":
+        profile = token.get("userinfo") or client.get("userinfo", token=token).json()
+        email = profile.get("email")
+        display_name = profile.get("name") or email
+    else:  # microsoft
+        profile = client.get("https://graph.microsoft.com/v1.0/me", token=token).json()
+        email = profile.get("mail") or profile.get("userPrincipalName")
+        display_name = profile.get("displayName") or email
+
+    if not email:
+        flash(f"{provider.title()} did not return an email address. Please try again.", "danger")
+        return redirect(url_for("auth.login"))
+
+    user = User.query.filter(db.func.lower(User.email) == email.lower()).first()
+    if not user:
+        db.session.add(LoginAuditLog(
+            username=email, event="login_failed",
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get("User-Agent", "")[:300],
+        ))
+        db.session.commit()
+        flash(f"No account found for {email}. Contact your administrator to request access.", "danger")
+        return redirect(url_for("auth.login"))
+    if not user.is_active:
+        flash("Your account is deactivated. Contact your administrator.", "danger")
+        return redirect(url_for("auth.login"))
+
+    login_user(user)
+    session["lang"] = user.language or "en"
+    db.session.add(LoginAuditLog(
+        user_id=user.id, username=user.username,
+        event="login_success",
+        ip_address=request.remote_addr,
+        user_agent=request.headers.get("User-Agent", "")[:300],
+    ))
+    db.session.commit()
+    flash(f"Welcome back, {display_name}!", "success")
+    return redirect(url_for("dashboard.main"))
+
+
+@auth.route("/set-language/<lang>")
+def set_language(lang):
+    if lang not in SUPPORTED_LANGUAGES:
+        lang = "en"
+    session["lang"] = lang
+    if current_user.is_authenticated:
+        current_user.language = lang
+        db.session.commit()
+    target = request.args.get("next") or request.referrer
+    if not target or not _is_safe_redirect(target):
+        target = url_for("dashboard.main")
+    return redirect(target)
 
 
 @auth.route("/logout")
@@ -98,11 +177,16 @@ def register():
             a2 = AdminLevel2.query.get(admin2_id)
             district_str = a2.name if a2 else None
 
+        agent_level = request.form.get("agent_level", type=int) if role == Role.AGENT else None
+        if role == Role.AGENT and agent_level not in (1, 2, 3, 4):
+            agent_level = 1
+
         user = User(
             username=username,
             password_hash=generate_password_hash(request.form.get("password")),
             full_name=request.form.get("full_name", "").strip(),
             role=role,
+            agent_level=agent_level,
             district=district_str,
             country_id=country_id or None,
             admin1_id=admin1_id,
@@ -274,6 +358,7 @@ def preferences():
     if request.method == "POST":
         current_user.timezone = request.form.get("timezone", "UTC")
         current_user.language = request.form.get("language", "en")
+        session["lang"] = current_user.language
         from models import db
         db.session.commit()
         flash("Preferences saved.", "success")

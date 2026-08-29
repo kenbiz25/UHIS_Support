@@ -1,3 +1,4 @@
+import json
 from flask import Blueprint, request, jsonify, current_app, make_response
 from models import (
     db, Ticket, KBArticle, KBCategory, CSATRating,
@@ -6,6 +7,9 @@ from models import (
 from datetime import datetime
 
 widget_api = Blueprint("widget_api", __name__, url_prefix="/widget")
+
+MAX_HISTORY_TURNS = 12
+FALLBACK_ESCALATE_TURNS = 2  # user turns before we ask for contact info when no AI key is set
 
 
 # ── CORS ────────────────────────────────────────────────────────────────────────
@@ -100,6 +104,100 @@ def widget_search():
     return jsonify({"results": results})
 
 
+# ── POST /widget/ai-chat ────────────────────────────────────────────────────────
+
+def _kb_context():
+    """Compact reference list of published KB articles, used to ground AI replies."""
+    articles = KBArticle.query.filter_by(is_published=True).limit(40).all()
+    lines = []
+    for a in articles:
+        desc = (a.meta_description or "").strip()
+        lines.append(f"- {a.title}: {desc}" if desc else f"- {a.title}")
+    return "\n".join(lines)
+
+
+def _fallback_ai_reply(message, history, branding):
+    """No OPENAI_API_KEY configured (or the AI call failed): a simple guided
+    intake that still always reaches a ticket - describe the issue for a
+    couple of turns, then ask for contact info."""
+    user_turns = [h for h in history if h.get("role") == "user"] + [{"content": message}]
+    if len(user_turns) < FALLBACK_ESCALATE_TURNS:
+        return {
+            "reply": "Thanks for reaching out. Could you share a few more details about the issue so I can log it accurately for our team?",
+            "escalate": False,
+        }
+    summary = " ".join((t.get("content") or "").strip() for t in user_turns).strip()
+    return {
+        "reply": "Got it - I've put together a summary of your issue. Please share your name and phone number or email so our support team can follow up.",
+        "escalate": True,
+        "summary": summary[:2000],
+    }
+
+
+@widget_api.route("/ai-chat", methods=["POST"])
+def ai_chat():
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    history = data.get("history") or []
+    if not isinstance(history, list):
+        history = []
+    history = history[-MAX_HISTORY_TURNS:]
+
+    if not message:
+        return jsonify({"error": "message is required"}), 422
+
+    branding = BrandingSettings.get()
+    api_key = current_app.config.get("OPENAI_API_KEY")
+
+    if not api_key:
+        return jsonify(_fallback_ai_reply(message, history, branding))
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        system_prompt = (
+            f"You are a support assistant for {branding.app_name}. "
+            "Answer using the knowledge base reference below when it's relevant. "
+            "Ask at most one or two clarifying questions. If you cannot resolve the "
+            "issue, or the user asks for a human/agent/ticket, stop asking questions "
+            "and escalate: set escalate to true and write a concise summary of the "
+            "issue for a support agent to read. "
+            "Reply with ONLY a JSON object of the form "
+            '{"reply": "your message to the user", "escalate": true or false, '
+            '"summary": "concise issue summary, only when escalate is true"}.\n\n'
+            f"Knowledge base:\n{_kb_context()}"
+        )
+        messages = [{"role": "system", "content": system_prompt}]
+        for turn in history:
+            role = turn.get("role")
+            content = (turn.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content[:2000]})
+        messages.append({"role": "user", "content": message[:2000]})
+
+        resp = client.chat.completions.create(
+            model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
+            messages=messages,
+            response_format={"type": "json_object"},
+            timeout=20,
+        )
+        parsed = json.loads(resp.choices[0].message.content)
+        escalate = bool(parsed.get("escalate"))
+        return jsonify({
+            "reply": (parsed.get("reply") or "").strip() or "Could you tell me a bit more about the issue?",
+            "escalate": escalate,
+            "summary": (parsed.get("summary") or "").strip()[:2000] if escalate else None,
+        })
+    except Exception as e:
+        current_app.logger.warning(f"AI chat failed, falling back to guided intake: {e}")
+        return jsonify({
+            "reply": "I'm having trouble reaching our AI assistant right now. Could you share your name and phone number or email so our team can follow up directly?",
+            "escalate": True,
+            "summary": message[:2000],
+        })
+
+
 # ── POST /widget/ticket ─────────────────────────────────────────────────────────
 
 @widget_api.route("/ticket", methods=["POST"])
@@ -107,12 +205,12 @@ def create_ticket():
     data = request.get_json(silent=True) or {}
 
     name = (data.get("name") or "").strip()
-    description = (data.get("description") or "").strip()
+    description = (data.get("issue") or data.get("description") or "").strip()
 
     if not name:
         return jsonify({"ok": False, "error": "name is required"}), 422
     if not description:
-        return jsonify({"ok": False, "error": "description is required"}), 422
+        return jsonify({"ok": False, "error": "issue description is required"}), 422
 
     contact = (data.get("contact") or "").strip()
     email = (data.get("email") or "").strip() or None
@@ -145,9 +243,19 @@ def create_ticket():
     )
 
     db.session.add(ticket)
+    db.session.flush()
+
+    csat = CSATRating(ticket_id=ticket.id)
+    db.session.add(csat)
     db.session.commit()
 
-    return jsonify({"ok": True, "ticket_id": ticket.id, "sl_no": ticket.sl_no}), 201
+    return jsonify({
+        "ok": True,
+        "ticket_id": ticket.id,
+        "sl_no": ticket.sl_no,
+        "status": ticket.current_status,
+        "csat_token": csat.token,
+    }), 201
 
 
 # ── GET /widget/ticket/<sl_no> ──────────────────────────────────────────────────

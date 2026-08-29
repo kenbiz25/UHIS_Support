@@ -1,0 +1,579 @@
+{% extends "base.html" %}
+{% block title %}Analytics & Reports{% endblock %}
+
+{% block extra_styles %}
+.kpi-val { font-size:1rem; font-weight:700; line-height:1.1; }
+.kpi-sub { font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; }
+.chart-box { position:relative; height:240px; }
+.chart-box-lg { position:relative; height:310px; }
+.section-title { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--bs-secondary); margin-bottom:.6rem; }
+.filter-chip { background:rgba(var(--bs-primary-rgb),.1); color:var(--bs-primary); border-radius:20px; padding:2px 10px; font-size:.72rem; display:inline-flex; align-items:center; gap:4px; }
+.agent-bar { height:6px; border-radius:3px; }
+.chart-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; gap:.4rem; font-size:.82rem; pointer-events:none; }
+/* Tablet only: filter bar scrolls horizontally */
+@media (min-width: 768px) and (max-width: 1399.98px) {
+  .filter-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .filter-scroll .row { flex-wrap: nowrap; min-width: max-content; }
+}
+/* Mobile: export buttons stack neatly */
+@media (max-width: 575.98px) {
+  .analytics-export { flex-direction: column; width: 100%; }
+  .analytics-export .btn { width: 100%; }
+}
+{% endblock %}
+
+{% block content %}
+
+{# ── Build export query-string once, reuse everywhere ───────────────────── #}
+{%- set _qp = [] -%}
+{%- if date_from_f -%}{%- set _ = _qp.append('date_from=' ~ date_from_f) -%}{%- endif -%}
+{%- if date_to_f -%}{%- set _ = _qp.append('date_to=' ~ date_to_f) -%}{%- endif -%}
+{%- if status_f -%}{%- set _ = _qp.append('status=' ~ status_f) -%}{%- endif -%}
+{%- if priority_f -%}{%- set _ = _qp.append('priority=' ~ priority_f) -%}{%- endif -%}
+{%- if country_f -%}{%- set _ = _qp.append('country_id=' ~ country_f) -%}{%- endif -%}
+{%- if assigned_f -%}{%- set _ = _qp.append('assigned_id=' ~ assigned_f) -%}{%- endif -%}
+{%- if channel_f -%}{%- set _ = _qp.append('channel=' ~ channel_f) -%}{%- endif -%}
+{%- set export_qs = ('?' ~ _qp | join('&')) if _qp else '' -%}
+
+{# ── Header ──────────────────────────────────────────────────────────────── #}
+{% set active_filters = [country_f, assigned_f, status_f, priority_f, channel_f, date_from_f] | select | list | length %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="fw-bold mb-1"><i class="fas fa-chart-line text-primary me-2"></i>Analytics &amp; Reports</h4>
+    <div class="text-muted small d-flex flex-wrap gap-2 align-items-center">
+      {% if date_from_f or date_to_f %}
+        <span>{{ date_from_f or '—' }} → {{ date_to_f or 'today' }}</span>
+      {% else %}
+        <span>Last {{ days }} days &nbsp;·&nbsp; {{ since.strftime('%b %d') }} – {{ until.strftime('%b %d, %Y') }}</span>
+      {% endif %}
+      {% for label, val, display in [
+          ('Country',  country_f,  country_name),
+          ('Agent',    assigned_f, agent_name),
+          ('Status',   status_f,   status_f),
+          ('Priority', priority_f, priority_f),
+          ('Channel',  channel_f,  channel_f | title if channel_f else ''),
+      ] %}
+        {% if val %}
+          <span class="filter-chip">
+            <i class="fas fa-filter" style="font-size:.6rem"></i> {{ label }}: {{ display or val }}
+          </span>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap analytics-export">
+    <a href="{{ url_for('tickets.export_excel') }}{{ export_qs }}" class="btn btn-success btn-sm fw-semibold">
+      <i class="fas fa-file-excel me-1"></i>Export Excel
+    </a>
+    <a href="{{ url_for('tickets.export_csv') }}{{ export_qs }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-file-csv me-1"></i>Export CSV
+    </a>
+  </div>
+</div>
+
+{# ── Filter panel ────────────────────────────────────────────────────────── #}
+{# Mobile toggle — hidden on md+ (filter always visible there) #}
+<button class="btn btn-outline-secondary btn-sm w-100 d-md-none mb-2"
+        type="button" data-bs-toggle="collapse" data-bs-target="#filterPanel"
+        aria-expanded="{{ 'true' if active_filters else 'false' }}">
+  <i class="fas fa-sliders-h me-1"></i>Filter Options
+  {% if active_filters %}<span class="badge bg-primary ms-1">{{ active_filters }} active</span>{% endif %}
+</button>
+
+<div class="collapse d-md-block mb-4 {{ 'show' if active_filters }}" id="filterPanel">
+  <div class="card border-0 shadow-sm rounded-3">
+    <div class="card-body p-3">
+      <div class="filter-scroll">
+      <form method="GET" class="row g-2 align-items-end">
+
+        {# Preset #}
+        <div class="col-12 col-sm-auto">
+          <label class="form-label small fw-semibold mb-1">Preset</label>
+          <div class="btn-group btn-group-sm">
+            {% for d, lbl in [(7,'7d'),(30,'30d'),(90,'90d'),(180,'180d'),(365,'1yr')] %}
+            <a href="?days={{ d }}" class="btn {{ 'btn-primary' if (not date_from_f and days == d) else 'btn-outline-secondary' }}">{{ lbl }}</a>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# Custom date range #}
+        <div class="col-12 col-sm-auto">
+          <label class="form-label small fw-semibold mb-1">Custom Range</label>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text"><i class="fas fa-calendar"></i></span>
+            <input type="date" name="date_from" class="form-control" value="{{ date_from_f }}" style="min-width:110px">
+            <span class="input-group-text">–</span>
+            <input type="date" name="date_to" class="form-control" value="{{ date_to_f }}" style="min-width:110px">
+          </div>
+        </div>
+
+        {# Country #}
+        <div class="col-6 col-sm-auto">
+          <label class="form-label small fw-semibold mb-1">Country</label>
+          <select name="country_id" class="form-select form-select-sm" style="min-width:120px">
+            <option value="">All Countries</option>
+            {% for c in countries %}
+            <option value="{{ c.id }}" {{ 'selected' if country_f == c.id }}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Agent #}
+        <div class="col-6 col-sm-auto">
+          <label class="form-label small fw-semibold mb-1">Agent</label>
+          <select name="assigned_id" class="form-select form-select-sm" style="min-width:130px">
+            <option value="">All Agents</option>
+            {% for a in assignable %}
+            <option value="{{ a.id }}" {{ 'selected' if assigned_f == a.id }}>{{ a.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Status #}
+        <div class="col-4 col-sm-auto">
+          <label class="form-label small fw-semibold mb-1">Status</label>
+          <select name="status" class="form-select form-select-sm" style="min-width:110px">
+            <option value="">All Statuses</option>
+            {% for s in statuses %}
+            <option value="{{ s }}" {{ 'selected' if status_f == s }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Priority #}
+        <div class="col-4 col-sm-auto">
+          <label class="form-label small fw-semibold mb-1">Priority</label>
+          <select name="priority" class="form-select form-select-sm" style="min-width:105px">
+            <option value="">All Priorities</option>
+            {% for p in priorities %}
+            <option value="{{ p }}" {{ 'selected' if priority_f == p }}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Channel #}
+        <div class="col-4 col-sm-auto">
+          <label class="form-label small fw-semibold mb-1">Channel</label>
+          <select name="channel" class="form-select form-select-sm" style="min-width:100px">
+            <option value="">All Channels</option>
+            {% for ch in channels %}
+            <option value="{{ ch }}" {{ 'selected' if channel_f == ch }}>{{ ch | title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Apply / Clear #}
+        <div class="col-12 col-sm-auto d-flex gap-1 align-items-end">
+          <button type="submit" class="btn btn-primary btn-sm flex-fill flex-sm-grow-0">
+            <i class="fas fa-filter me-1"></i>Apply
+          </button>
+          <a href="{{ url_for('dashboard.analytics') }}" class="btn btn-outline-secondary btn-sm" title="Clear filters">
+            <i class="fas fa-times"></i>
+          </a>
+        </div>
+
+      </form>
+      </div>{# /filter-scroll #}
+    </div>
+  </div>
+</div>
+
+{# ── KPI row ─────────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  {% set kpis = [
+    (total,          'Total Tickets',     'primary', 'ticket-alt'),
+    (total_open,     'Open',              'danger',  'folder-open'),
+    (total_inprog,   'In Progress',       'warning', 'spinner'),
+    (total_resolved, 'Resolved',          'success', 'check-circle'),
+    (total_critical, 'Critical/Urgent',   'danger',  'fire'),
+    (total_breached, 'SLA Breached',      'danger',  'exclamation-triangle'),
+  ] %}
+  {% for val, label, color, icon in kpis %}
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card border-0 shadow-sm h-100 {{ 'border-start border-3 border-' ~ color if val > 0 and color == 'danger' else '' }}">
+      <div class="card-body d-flex align-items-center gap-3 p-3">
+        <div class="bg-{{ color }} bg-opacity-10 rounded-3 flex-shrink-0"
+             style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-{{ icon }} text-{{ color }}"></i>
+        </div>
+        <div>
+          <div class="kpi-val text-{{ color }}">{{ val }}</div>
+          <div class="kpi-sub text-muted">{{ label }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  {# Performance KPIs #}
+  {% set perf_kpis = [
+    ((avg_res_hours ~ 'h') if avg_res_hours else '—', 'Avg Resolution', 'info',    'clock'),
+    ((csat_avg ~ '★') if csat_avg else '—',           'CSAT',           'warning', 'star'),
+    ((sla_rate ~ '%') if sla_rate else '—',            'SLA Compliance', 'success' if sla_rate and sla_rate >= 80 else 'danger', 'shield-alt'),
+  ] %}
+  {% for val, label, color, icon in perf_kpis %}
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body d-flex align-items-center gap-3 p-3">
+        <div class="bg-{{ color }} bg-opacity-10 rounded-3 flex-shrink-0"
+             style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-{{ icon }} text-{{ color }}"></i>
+        </div>
+        <div>
+          <div class="kpi-val text-{{ color }}">{{ val }}</div>
+          <div class="kpi-sub text-muted">{{ label }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── Volume chart (full width) ───────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm rounded-3 mb-4">
+  <div class="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center py-3">
+    <span class="fw-semibold"><i class="fas fa-chart-area me-2 text-primary"></i>Ticket Volume Over Time</span>
+    <small class="text-muted">Created vs Resolved — all active filters applied</small>
+  </div>
+  <div class="card-body p-3">
+    <div class="chart-box-lg">
+      <div class="chart-loading"><i class="fas fa-circle-notch fa-spin text-muted"></i><span class="text-muted">Loading…</span></div>
+      <canvas id="volumeChart" role="img" aria-label="Ticket volume over time: created vs resolved"></canvas>
+    </div>
+  </div>
+</div>
+
+{# ── Charts row 1 ────────────────────────────────────────────────────────── #}
+<div class="row g-4 mb-4">
+  <div class="col-md-6 col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-bottom py-3 fw-semibold small">
+        <i class="fas fa-circle-half-stroke me-2 text-secondary"></i>By Status
+      </div>
+      <div class="card-body p-3"><div class="chart-box">
+        <div class="chart-loading"><i class="fas fa-circle-notch fa-spin text-muted"></i><span class="text-muted">Loading…</span></div>
+        <canvas id="statusChart" role="img" aria-label="Tickets by status doughnut chart"></canvas>
+      </div></div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-bottom py-3 fw-semibold small">
+        <i class="fas fa-flag me-2 text-warning"></i>By Priority
+      </div>
+      <div class="card-body p-3"><div class="chart-box">
+        <div class="chart-loading"><i class="fas fa-circle-notch fa-spin text-muted"></i><span class="text-muted">Loading…</span></div>
+        <canvas id="priorityChart" role="img" aria-label="Tickets by priority doughnut chart"></canvas>
+      </div></div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-bottom py-3 fw-semibold small d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-shield-alt me-2 text-info"></i>SLA Compliance</span>
+        {% if sla_rate %}<span class="badge {{ 'bg-success' if sla_rate >= 80 else 'bg-danger' }}">{{ sla_rate }}%</span>{% endif %}
+      </div>
+      <div class="card-body p-3">
+        <div class="chart-box">
+          <div class="chart-loading"><i class="fas fa-circle-notch fa-spin text-muted"></i><span class="text-muted">Loading…</span></div>
+          <canvas id="slaChart" role="img" aria-label="SLA compliance doughnut chart"></canvas>
+        </div>
+        <div class="d-flex justify-content-around mt-2" style="font-size:.75rem">
+          <span class="text-success"><i class="fas fa-check me-1"></i>{{ sla_compliant }} compliant</span>
+          <span class="text-danger"><i class="fas fa-times me-1"></i>{{ sla_failed }} breached</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Charts row 2 ────────────────────────────────────────────────────────── #}
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-bottom py-3 fw-semibold small">
+        <i class="fas fa-layer-group me-2 text-secondary"></i>By Channel
+      </div>
+      <div class="card-body p-3"><div class="chart-box">
+        <div class="chart-loading"><i class="fas fa-circle-notch fa-spin text-muted"></i><span class="text-muted">Loading…</span></div>
+        <canvas id="channelChart" role="img" aria-label="Tickets by channel bar chart"></canvas>
+      </div></div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-bottom py-3 fw-semibold small">
+        <i class="fas fa-globe me-2 text-primary"></i>By Country
+      </div>
+      <div class="card-body p-3"><div class="chart-box">
+        <div class="chart-loading"><i class="fas fa-circle-notch fa-spin text-muted"></i><span class="text-muted">Loading…</span></div>
+        <canvas id="countryChart" role="img" aria-label="Tickets by country bar chart"></canvas>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+{# ── Charts row 3 ────────────────────────────────────────────────────────── #}
+<div class="row g-4 mb-4">
+  <div class="col-md-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-bottom py-3 fw-semibold small">
+        <i class="fas fa-tags me-2" style="color:#7c3aed"></i>By Issue Category
+      </div>
+      <div class="card-body p-3"><div class="chart-box">
+        <div class="chart-loading"><i class="fas fa-circle-notch fa-spin text-muted"></i><span class="text-muted">Loading…</span></div>
+        <canvas id="categoryChart" role="img" aria-label="Tickets by issue category bar chart"></canvas>
+      </div></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-bottom py-3 fw-semibold small">
+        <i class="fas fa-star me-2 text-warning"></i>CSAT Distribution
+        {% if csat_count %}<span class="badge bg-secondary ms-1">{{ csat_count }} ratings</span>{% endif %}
+      </div>
+      <div class="card-body p-3">
+        {% if csat_dist %}
+        {% set csat_total = csat_dist | sum(attribute=1) %}
+        <div class="d-flex flex-column gap-2 mt-1">
+          {% for rating, count in csat_dist | sort(attribute=0, reverse=true) %}
+          <div class="d-flex align-items-center gap-2 small">
+            <span style="min-width:52px;font-size:.8rem">{{ '★' * rating }}</span>
+            <div class="progress flex-grow-1 agent-bar">
+              <div class="progress-bar {{ 'bg-success' if rating >= 4 else 'bg-warning' if rating == 3 else 'bg-danger' }}"
+                   style="width:{{ ((count / csat_total) * 100) | round }}%"></div>
+            </div>
+            <span class="text-muted fw-semibold" style="min-width:24px">{{ count }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No CSAT ratings for this period</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Agent performance ───────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm rounded-3 mb-4">
+  <div class="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center py-3">
+    <span class="fw-semibold"><i class="fas fa-users me-2 text-primary"></i>Agent Performance</span>
+    <small class="text-muted">{{ since.strftime('%b %d') }} – {{ until.strftime('%b %d, %Y') }}{% if country_f %} · filtered by country{% endif %}</small>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light small text-uppercase">
+        <tr>
+          <th class="ps-4" style="width:32px">#</th>
+          <th>Agent</th>
+          <th class="text-center">Role</th>
+          <th class="text-center">Assigned</th>
+          <th class="text-center">Resolved</th>
+          <th style="min-width:160px">Resolve Rate</th>
+          <th class="text-center">Avg Time</th>
+          <th class="text-center">CSAT</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in agents %}
+        <tr>
+          <td class="ps-4">
+            <span style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;font-size:.7rem;font-weight:700;"
+                  class="{{ 'bg-warning text-dark' if loop.index == 1 else 'bg-light text-muted border' }}">
+              {{ loop.index }}
+            </span>
+          </td>
+          <td class="fw-semibold">{{ a.name }}</td>
+          <td class="text-center"><span class="badge bg-secondary">{{ a.role }}</span></td>
+          <td class="text-center">{{ a.total }}</td>
+          <td class="text-center fw-semibold text-success">{{ a.resolved }}</td>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress flex-grow-1 agent-bar">
+                <div class="progress-bar {{ 'bg-success' if a.rate >= 80 else 'bg-warning' if a.rate >= 50 else 'bg-danger' }}"
+                     style="width:{{ a.rate }}%"></div>
+              </div>
+              <small class="text-muted" style="min-width:36px">{{ a.rate }}%</small>
+            </div>
+          </td>
+          <td class="text-center small">{{ a.avg_hours }}h</td>
+          <td class="text-center">
+            {% if a.csat %}<span class="text-warning fw-semibold">{{ a.csat }}★</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center py-4 text-muted">No agent data for this period.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Summary report table ────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm rounded-3 mb-4">
+  <div class="card-header bg-transparent border-bottom py-3 fw-semibold">
+    <i class="fas fa-chart-bar me-2 text-secondary"></i>Summary Report
+    <div class="d-flex gap-2 float-end">
+      <a href="{{ url_for('tickets.export_excel') }}{{ export_qs }}" class="btn btn-success btn-sm">
+        <i class="fas fa-file-excel me-1"></i>Excel
+      </a>
+      <a href="{{ url_for('tickets.export_csv') }}{{ export_qs }}" class="btn btn-outline-secondary btn-sm">
+        <i class="fas fa-file-csv me-1"></i>CSV
+      </a>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="row g-4 small">
+      <div class="col-md-4">
+        <div class="section-title">Volume</div>
+        <table class="table table-sm mb-0">
+          <tr><td class="text-muted">Total Created</td><td class="fw-semibold text-end">{{ total }}</td></tr>
+          <tr><td class="text-muted">Open</td><td class="fw-semibold text-end text-danger">{{ total_open }}</td></tr>
+          <tr><td class="text-muted">In Progress</td><td class="fw-semibold text-end text-warning">{{ total_inprog }}</td></tr>
+          <tr><td class="text-muted">Resolved</td><td class="fw-semibold text-end text-success">{{ total_resolved }}</td></tr>
+          <tr><td class="text-muted">Critical / Urgent</td><td class="fw-semibold text-end text-danger">{{ total_critical }}</td></tr>
+          <tr><td class="text-muted">Active SLA Breaches</td><td class="fw-semibold text-end text-danger">{{ total_breached }}</td></tr>
+        </table>
+      </div>
+      <div class="col-md-4">
+        <div class="section-title">SLA Performance</div>
+        <table class="table table-sm mb-0">
+          <tr><td class="text-muted">Avg Resolution Time</td><td class="fw-semibold text-end">{{ avg_res_hours ~ 'h' if avg_res_hours else '—' }}</td></tr>
+          <tr><td class="text-muted">SLA Compliance Rate</td>
+            <td class="fw-semibold text-end {{ 'text-success' if sla_rate and sla_rate >= 80 else 'text-danger' if sla_rate else '' }}">
+              {{ sla_rate ~ '%' if sla_rate else '—' }}</td></tr>
+          <tr><td class="text-muted">SLA Compliant</td><td class="fw-semibold text-end text-success">{{ sla_compliant }}</td></tr>
+          <tr><td class="text-muted">SLA Breached</td><td class="fw-semibold text-end text-danger">{{ sla_failed }}</td></tr>
+        </table>
+        {% if status_data %}
+        <div class="section-title mt-3">By Status</div>
+        <table class="table table-sm mb-0">
+          {% for status, count in status_data | sort(attribute=1, reverse=true) %}
+          <tr><td class="text-muted">{{ status }}</td><td class="fw-semibold text-end">{{ count }}</td></tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+      </div>
+      <div class="col-md-4">
+        <div class="section-title">Satisfaction</div>
+        <table class="table table-sm mb-0">
+          <tr><td class="text-muted">CSAT Score</td>
+            <td class="fw-semibold text-end text-warning">{{ csat_avg ~ '★' if csat_avg else '—' }}</td></tr>
+          <tr><td class="text-muted">Ratings Collected</td><td class="fw-semibold text-end">{{ csat_count }}</td></tr>
+        </table>
+        {% if country_data %}
+        <div class="section-title mt-3">By Country</div>
+        <table class="table table-sm mb-0">
+          {% for country, count in country_data %}
+          <tr><td class="text-muted">{{ country }}</td><td class="fw-semibold text-end">{{ count }}</td></tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+const grid   = isDark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.05)';
+const tick   = isDark ? '#9ca3af' : '#6c757d';
+Chart.defaults.color = tick;
+Chart.defaults.borderColor = grid;
+
+const C = {
+  primary: '#2514BE', success: '#2E9E6B', warning: '#C35721',
+  danger:  '#994242', info:    '#6165DE', purple:  '#655AD0',
+  gray:    '#70706E', orange:  '#EB956A',
+};
+
+function initChart(id, config) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  const loader = el.previousElementSibling;
+  if (loader && loader.classList.contains('chart-loading')) loader.remove();
+  return new Chart(el, config);
+}
+
+initChart('volumeChart', {
+  type: 'line',
+  data: {
+    labels: {{ date_labels | tojson }},
+    datasets: [
+      { label:'Created',  data:{{ created_series | tojson }},
+        borderColor:C.primary, backgroundColor:'rgba(59,130,246,.08)', tension:.3, fill:true, pointRadius:2 },
+      { label:'Resolved', data:{{ resolved_series | tojson }},
+        borderColor:C.success, backgroundColor:'rgba(16,185,129,.08)', tension:.3, fill:true, pointRadius:2 }
+    ]
+  },
+  options:{ responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ position:'top' } },
+    scales:{ x:{ grid:{color:grid}, ticks:{maxTicksLimit:12, color:tick, maxRotation:0} },
+             y:{ beginAtZero:true, grid:{color:grid}, ticks:{color:tick} } } }
+});
+
+const SC = { Open:C.danger, 'In Progress':C.warning, Pending:C.info, Resolved:C.success, Closed:C.gray, Reopened:C.orange };
+const sl = {{ status_data | map(attribute=0) | list | tojson }};
+initChart('statusChart', {
+  type:'doughnut',
+  data:{ labels:sl, datasets:[{ data:{{ status_data | map(attribute=1) | list | tojson }},
+    backgroundColor:sl.map(l=>SC[l]||C.gray), borderWidth:2 }] },
+  options:{ responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ position:'right', labels:{ boxWidth:12, font:{size:11} } } } }
+});
+
+const PC = { Critical:C.danger, Urgent:C.danger, High:C.orange, Medium:C.info, Low:C.success };
+const pl = {{ priority_data | map(attribute=0) | list | tojson }};
+initChart('priorityChart', {
+  type:'doughnut',
+  data:{ labels:pl, datasets:[{ data:{{ priority_data | map(attribute=1) | list | tojson }},
+    backgroundColor:pl.map(l=>PC[l]||C.gray), borderWidth:2 }] },
+  options:{ responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ position:'right', labels:{ boxWidth:12, font:{size:11} } } } }
+});
+
+initChart('slaChart', {
+  type:'doughnut',
+  data:{ labels:['Compliant','Breached','Active OK'],
+    datasets:[{ data:[{{ sla_compliant }},{{ sla_failed }},{{ total_breached }}],
+      backgroundColor:[C.success, C.danger, C.info], borderWidth:2 }] },
+  options:{ responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, font:{size:11} } } } }
+});
+
+initChart('channelChart', {
+  type:'bar',
+  data:{ labels:{{ channel_data | map(attribute=0) | list | tojson }},
+    datasets:[{ label:'Tickets', data:{{ channel_data | map(attribute=1) | list | tojson }},
+      backgroundColor:C.purple, borderRadius:5 }] },
+  options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
+    plugins:{ legend:{ display:false } },
+    scales:{ x:{ beginAtZero:true, grid:{color:grid} }, y:{ grid:{display:false} } } }
+});
+
+initChart('countryChart', {
+  type:'bar',
+  data:{ labels:{{ country_data | map(attribute=0) | list | tojson }},
+    datasets:[{ label:'Tickets', data:{{ country_data | map(attribute=1) | list | tojson }},
+      backgroundColor:C.primary, borderRadius:5 }] },
+  options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
+    plugins:{ legend:{ display:false } },
+    scales:{ x:{ beginAtZero:true, grid:{color:grid} }, y:{ grid:{display:false} } } }
+});
+
+initChart('categoryChart', {
+  type:'bar',
+  data:{ labels:{{ category_data | map(attribute=0) | list | tojson }},
+    datasets:[{ label:'Tickets', data:{{ category_data | map(attribute=1) | list | tojson }},
+      backgroundColor:C.warning, borderRadius:5 }] },
+  options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
+    plugins:{ legend:{ display:false } },
+    scales:{ x:{ beginAtZero:true, grid:{color:grid} }, y:{ grid:{display:false} } } }
+});
+</script>
+{% endblock %}

@@ -132,20 +132,11 @@ def create():
         if sla:
             ticket.due_date = datetime.utcnow() + timedelta(hours=sla.resolution_hours)
 
-        # Auto-assign: pick active DSO/Admin with fewest open tickets (round-robin)
+        # Auto-assign: new tickets start at L1 (first contact) — route to the
+        # least-loaded active L1 agent, falling back to any agent/admin.
         if not ticket.assigned_to_id:
-            agents = User.query.filter(
-                User.role.in_([Role.DSO, Role.ADMIN]), User.is_active == True
-            ).all()
-            if agents:
-                best = min(
-                    agents,
-                    key=lambda u: Ticket.query.filter(
-                        Ticket.assigned_to_id == u.id,
-                        Ticket.current_status.notin_(["Resolved", "Closed"])
-                    ).count()
-                )
-                ticket.assigned_to_id = best.id
+            from utils import auto_route_ticket
+            auto_route_ticket(ticket, 1)
 
         # Handle additional file attachments
         upload_folder = current_app.config["UPLOAD_FOLDER"]
@@ -218,7 +209,7 @@ def create():
         flash(f"Ticket {ticket.sl_no} submitted successfully! Tracking your issue.", "success")
         return redirect(url_for("tickets.detail", ticket_id=ticket.id))
 
-    dso_users = User.query.filter_by(role=Role.DSO, is_active=True).all()
+    dso_users = User.query.filter_by(role=Role.AGENT, is_active=True).all()
     all_tags = Tag.query.order_by(Tag.name).all()
     from models import IssueCategory, Country
     categories = IssueCategory.query.filter_by(is_active=True).order_by(IssueCategory.display_order).all()
@@ -259,8 +250,14 @@ def detail(ticket_id):
         flash("Viewers do not have access to individual ticket details.", "warning")
         return redirect(url_for("dashboard.main"))
     ticket = Ticket.query.get_or_404(ticket_id)
+    required_level = ticket.required_agent_level()
+    # Reassignment can't quietly bump a ticket down a tier — only same level or higher.
     assignable = User.query.filter(
-        User.role.in_([Role.DSO, Role.ADMIN, Role.SUPER_ADMIN]), User.is_active == True
+        db.or_(
+            User.role.in_([Role.ADMIN, Role.SUPER_ADMIN]),
+            db.and_(User.role == Role.AGENT, User.agent_level >= required_level),
+        ),
+        User.is_active == True,
     ).all()
     can_see_internal = current_user.can_update_tickets()
     comments = [
@@ -460,14 +457,61 @@ def update(ticket_id):
     return redirect(url_for("tickets.detail", ticket_id=ticket_id))
 
 
+# ── Escalate ───────────────────────────────────────────────────────────────────
+
+@tickets.route("/<int:ticket_id>/escalate", methods=["POST"])
+@login_required
+def escalate(ticket_id):
+    if not current_user.can_update_tickets():
+        flash("You don't have permission to escalate tickets.", "danger")
+        return redirect(url_for("tickets.detail", ticket_id=ticket_id))
+
+    ticket = Ticket.query.get_or_404(ticket_id)
+    old_level = ticket.escalation_level
+    if old_level >= 3:
+        flash("This ticket is already at the highest escalation level (L4).", "warning")
+        return redirect(url_for("tickets.detail", ticket_id=ticket_id))
+
+    new_level = old_level + 1
+    ticket.escalation_level = new_level
+    ticket.updated_at = datetime.utcnow()
+    target_tier = new_level + 1  # required_agent_level after this bump
+
+    from utils import auto_route_ticket
+    agent = auto_route_ticket(ticket, target_tier)
+
+    log_history(
+        ticket.id, current_user.id,
+        f"Escalated to Level {new_level}" + (f" — routed to {agent.full_name}" if agent else ""),
+        str(old_level), str(new_level),
+    )
+    if agent:
+        create_notification(
+            agent.id,
+            f"Ticket {ticket.sl_no} escalated to L{target_tier} and assigned to you",
+            ticket_id=ticket.id, notif_type="warning",
+        )
+    notify_staff(
+        f"Ticket {ticket.sl_no} escalated to Level {new_level} by {current_user.full_name}",
+        ticket_id=ticket.id, notif_type="danger", roles=[Role.SUPER_ADMIN, Role.ADMIN],
+    )
+    db.session.commit()
+
+    if agent:
+        flash(f"Ticket escalated to L{target_tier} and routed to {agent.full_name}.", "success")
+    else:
+        flash(f"Ticket escalated to L{target_tier} — no available L{target_tier} agent found; assign manually.", "warning")
+    return redirect(url_for("tickets.detail", ticket_id=ticket_id))
+
+
 def _send_csat_email(ticket, token, rating_url):
     html = f"""
 <div style="font-family:Arial,sans-serif;max-width:500px;margin:auto;padding:24px;">
-  <h2 style="color:#1d6fa4;">How did we do?</h2>
+  <h2 style="color:#2514BE;">How did we do?</h2>
   <p>Your ticket <strong>{ticket.sl_no}</strong> has been resolved.</p>
   <p>Please take a moment to rate your support experience:</p>
   <div style="text-align:center;margin:24px 0;">
-    {''.join(f'<a href="{rating_url}?r={i}" style="display:inline-block;margin:4px;padding:10px 18px;background:#1d6fa4;color:#fff;border-radius:6px;text-decoration:none;font-size:1.2rem;">{"⭐"*i}</a>' for i in range(1, 6))}
+    {''.join(f'<a href="{rating_url}?r={i}" style="display:inline-block;margin:4px;padding:10px 18px;background:#2514BE;color:#fff;border-radius:6px;text-decoration:none;font-size:1.2rem;">{"⭐"*i}</a>' for i in range(1, 6))}
   </div>
   <p style="color:#6b7280;font-size:.85rem;">Or <a href="{rating_url}">click here</a> to leave detailed feedback.</p>
 </div>"""
@@ -481,7 +525,7 @@ def _send_csat_email(ticket, token, rating_url):
 
 def _send_wa_csat(ticket, token):
     try:
-        from routes.webhooks import _wa_send
+        from whatsapp_client import send as _wa_send
         phone = ticket.issue_reporter_contact
         if not phone:
             return
@@ -580,6 +624,10 @@ def add_comment(ticket_id):
                 ticket_id=ticket.id, notif_type="info",
                 exclude_user_id=current_user.id,
             )
+        # Relay staff replies back to WhatsApp for WhatsApp-originated tickets
+        if ticket.whatsapp_phone and current_user.role != Role.REPORTER:
+            from whatsapp_client import send as _wa_send
+            _wa_send(ticket.whatsapp_phone, f"Update on ticket {ticket.sl_no}:\n\n{body}")
 
     from utils import run_automation_rules
     run_automation_rules(ticket, "reply_received", current_user.id)

@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}{{ country.name }} — Escalation Matrix{% endblock %}
+
+{% block extra_styles %}
+.flow-level {
+  position:relative;
+  padding:1.25rem 1.5rem;
+  border-radius:12px;
+  margin-bottom:0;
+}
+.flow-arrow {
+  display:flex;align-items:center;justify-content:center;
+  height:32px;color:#9ca3af;font-size:1.2rem;
+}
+.action-chip {
+  display:inline-flex;align-items:center;gap:4px;
+  background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.08);
+  border-radius:20px;padding:3px 10px;font-size:.75rem;margin:2px;
+}
+.stream-card {
+  border-radius:12px;overflow:hidden;
+}
+.tool-badge {
+  font-size:.68rem;font-weight:700;letter-spacing:.04em;
+  padding:2px 8px;border-radius:10px;
+}
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+  <a href="{{ url_for('admin_tools.escalation_matrices') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="fas fa-arrow-left me-1"></i>All Countries
+  </a>
+  <div>
+    <h4 class="fw-bold mb-0">{{ country.name }} — Support Escalation Flow</h4>
+    <p class="text-muted small mb-0">{{ country.admin1_label }} · {{ country.admin2_label }} · {{ country.admin3_label }}</p>
+  </div>
+</div>
+
+{% if not matrix or (not matrix.levels_json and not matrix.streams_json) %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="fas fa-sitemap fa-3x mb-3 opacity-25"></i>
+    <p>No escalation matrix defined for {{ country.name }} yet.</p>
+    {% if current_user.role.value == 'Super Admin' %}
+    <a href="#" class="btn btn-primary btn-sm">Configure Matrix</a>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+
+{% if matrix.streams_json %}
+{# Multi-stream layout (e.g. Bangladesh has parallel field-support and technical-escalation tracks) #}
+<div class="row g-4 mb-4">
+  {% for stream in matrix.streams_json %}
+  <div class="col-md-6">
+    <div class="stream-card border shadow-sm">
+      <div class="p-3 fw-bold d-flex align-items-center gap-2"
+           style="background:{{ stream.header_color or '#1e2a38' }};color:{{ stream.header_text or '#fff' }}">
+        {% if stream.logo_icon %}
+          <i class="fas fa-{{ stream.logo_icon }} fa-lg"></i>
+        {% endif %}
+        {{ stream.name }}
+      </div>
+      <div class="p-3">
+        {# User base #}
+        {% if stream.users %}
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          {% for u in stream.users %}
+          <span class="badge bg-primary px-3 py-2" style="font-size:.8rem">
+            <i class="fas fa-users me-1"></i>{{ u }}
+          </span>
+          {% endfor %}
+        </div>
+        <div class="flow-arrow"><i class="fas fa-arrow-up"></i></div>
+        {% endif %}
+        {# Levels bottom-up #}
+        {% for level in stream.levels %}
+        <div class="flow-level mb-2"
+             style="background:{{ level.color or '#f3f4f6' }};border-left:4px solid {{ level.border or '#6b7280' }}">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="fw-bold" style="font-size:.9rem">{{ level.name }}</div>
+              {% if level.owner %}
+              <div class="text-muted small">{{ level.owner }}</div>
+              {% endif %}
+            </div>
+            {% if level.tool %}
+            <span class="tool-badge" style="background:{{ level.tool_color or '#e5e7eb' }};color:{{ level.tool_text or '#374151' }}">
+              {{ level.tool }}
+            </span>
+            {% endif %}
+          </div>
+          {% if level.actions %}
+          <div class="mt-2 d-flex flex-wrap">
+            {% for action in level.actions %}
+            <span class="action-chip"><i class="fas fa-check-circle text-success"></i>{{ action }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+        {% if not loop.last %}
+        <div class="flow-arrow"><i class="fas fa-arrow-up"></i></div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{# Shared top levels #}
+{% if matrix.levels_json %}
+<div class="text-center mb-2 text-muted small fw-semibold">↑ Both streams escalate to ↑</div>
+{% endif %}
+{% endif %}
+
+{% if matrix.levels_json %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-transparent border-bottom fw-semibold py-3">
+    <i class="fas fa-sitemap me-2 text-primary"></i>
+    {% if matrix.streams_json %}Shared Escalation Path{% else %}Escalation Flow{% endif %}
+  </div>
+  <div class="card-body p-4">
+    <div style="max-width:600px;margin:auto">
+      {% for level in matrix.levels_json %}
+      <div class="flow-level mb-2"
+           style="background:{{ level.color or '#f9fafb' }};border-left:4px solid {{ level.border or '#d1d5db' }}">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fw-bold">{{ level.name }}</div>
+            {% if level.owner %}<div class="text-muted small">{{ level.owner }}</div>{% endif %}
+          </div>
+          {% if level.tool %}
+          <span class="tool-badge" style="background:{{ level.tool_color or '#e5e7eb' }};color:{{ level.tool_text or '#374151' }}">
+            {{ level.tool }}
+          </span>
+          {% endif %}
+        </div>
+        {% if level.actions %}
+        <div class="mt-2 d-flex flex-wrap">
+          {% for action in level.actions %}
+          <span class="action-chip"><i class="fas fa-check-circle text-success"></i>{{ action }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% if not loop.last %}
+      <div class="flow-arrow"><i class="fas fa-arrow-up"></i></div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if matrix.notes %}
+<div class="alert alert-light border mt-3 small">
+  <i class="fas fa-info-circle me-2 text-info"></i>{{ matrix.notes }}
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
