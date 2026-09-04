@@ -187,6 +187,21 @@ body { font-family: var(--bs-font-sans-serif); }
   flex-direction: row;
 }
 
+/* Bootstrap deliberately makes dropdown-menus inside .navbar-nav position:static
+   (`.navbar-nav .dropdown-menu{position:static}` in bootstrap.min.css) and skips
+   Popper positioning entirely for any dropdown toggle inside a .navbar (its
+   `_inNavbar` check) - both are meant for a navbar that's free to grow taller to
+   fit an open dropdown. Ours is fixed at 56px (see #mainWrapper above), so a
+   static-positioned dropdown's content overflowed straight past that height onto
+   the page below, where its light navbar-styled text became unreadable against
+   the white background - it wasn't "disappearing", it was rendering outside the
+   navbar's own dark background. Force the normal floating-overlay behavior;
+   data-bs-popper is already present on the menu (Bootstrap sets it regardless of
+   Popper being active) so its top/left/margin rules apply once position is fixed. */
+.navbar-nav .dropdown-menu[data-bs-popper] {
+  position: absolute;
+}
+
 .navbar-nav .nav-link {
   font-size: .875rem;
   padding-left: .6rem;

@@ -50,4 +50,4 @@ def test_botflow_low_confidence_asks_for_clarity():
     composer = DummyComposer("I think this might work, not certain.", {"confidence": 0.1, "citations": []})
     bf = BotFlow(None, None, wa, composer=composer)
     bf.handle_message("user-3", "How do I change settings?")
-    assert any("share one brief detail" in m or "guide you accurately" in m for _, m in wa.sent)
+    assert any("tell me a bit more" in m.lower() or "help you faster" in m.lower() for _, m in wa.sent)

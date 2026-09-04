@@ -77,6 +77,12 @@ def upsert_ticket():
     name = (data.get('name') or phone).strip()
     division = (data.get('division') or '').strip()
     conversation_summary = (data.get('conversation_summary') or '').strip()
+    # "Resolved" is used when the bot auto-logs a conversation that already
+    # resolved itself via chat, so it's a record for reporting rather than
+    # landing in agents' Open queue needing action already taken.
+    initial_status = data.get('status') or 'Open'
+    if initial_status not in ('Open', 'Resolved'):
+        initial_status = 'Open'
 
     existing = _find_open_ticket(phone)
     if existing:
@@ -88,6 +94,7 @@ def upsert_ticket():
 
     admin1 = _resolve_division(division)
 
+    now = datetime.utcnow()
     ticket = Ticket(
         channel='whatsapp',
         external_id=_external_id(phone),
@@ -99,9 +106,11 @@ def upsert_ticket():
         problem_details=issue,
         spice_platform='BD Support Bot',
         priority='Medium',
-        current_status='Open',
-        reporting_date=datetime.utcnow(),
-        issue_start_date=datetime.utcnow(),
+        current_status=initial_status,
+        solved_status=(initial_status == 'Resolved'),
+        solved_date=now if initial_status == 'Resolved' else None,
+        reporting_date=now,
+        issue_start_date=now,
     )
 
     # generate_sl_no() is a non-atomic COUNT(*)-based counter - fine for the

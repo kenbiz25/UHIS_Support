@@ -37,6 +37,12 @@ def test_close_and_ignore_followups(monkeypatch):
     # BotFlow requires faiss and llm but we won't use them in this test
     bot = BotFlow(faiss_store=None, llm_service=None, whatsapp_service=whatsapp, composer=MockComposer())
 
+    # Bypass language selection / contact intake - this test is about
+    # close/ignore-followup behavior, not those earlier first-touch steps.
+    from core.contacts import state as contact_state
+    contact_state.set_language('+100', "en")
+    contact_state.set_contact('+100', skipped=True)
+
     # 1) Initial user message -> normal reply
     out1, meta1 = bot.handle_message('+100', 'My phone is just loading when i open any page', session_id='+100')
     assert whatsapp.sent[-1][1].startswith('Please try restarting')

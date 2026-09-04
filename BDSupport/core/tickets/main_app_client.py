@@ -36,13 +36,16 @@ def _configured() -> bool:
 
 def create_ticket(
     phone: str, issue: str, conversation_summary: str,
-    name: str = "", division: str = "",
+    name: str = "", division: str = "", status: str = "Open",
 ) -> Tuple[Optional[int], Optional[str]]:
     """Create (or fetch the existing open) ticket for this phone.
 
     name/division come from the pre-answer contact intake (core/contacts/state.py)
     when the user provided them - blank if skipped, in which case the main app
-    falls back to using the phone number as the reporter name.
+    falls back to using the phone number as the reporter name. status="Resolved"
+    is used when the bot is auto-logging a conversation that already resolved
+    itself via chat (see rag/flow.py's resolution/closing handling), so it
+    doesn't land in agents' Open queue needing action that was already taken.
 
     Returns (ticket_id, sl_no) on success, (None, None) if the ticketing
     tool couldn't be reached or is not configured.
@@ -56,7 +59,7 @@ def create_ticket(
             f"{settings.MAIN_APP_BASE_URL.rstrip('/')}/api/bd-support/tickets",
             json={
                 "phone": phone, "issue": issue, "conversation_summary": conversation_summary,
-                "name": name or None, "division": division or None,
+                "name": name or None, "division": division or None, "status": status,
             },
             headers=_headers(),
             timeout=_TIMEOUT,

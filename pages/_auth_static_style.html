@@ -17,19 +17,13 @@
 
   .auth-promo-side {
     flex: 1;
-    background: linear-gradient(145deg, #1a2e6c 0%, #2514BE 60%, #6165DE 100%);
+    background:
+      linear-gradient(145deg, rgba(15,23,60,.62) 0%, rgba(30,16,150,.55) 55%, rgba(60,50,180,.5) 100%),
+      url("{{ url_for('static', filename='images/auth-bangladesh-village.jpg') }}") center/cover no-repeat;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     padding: 60px 40px; gap: 32px;
     position: relative; overflow: hidden;
-  }
-  .auth-promo-side::before {
-    content: ''; position: absolute; width: 500px; height: 500px; border-radius: 50%;
-    background: rgba(255,255,255,.05); top: -120px; right: -120px;
-  }
-  .auth-promo-side::after {
-    content: ''; position: absolute; width: 300px; height: 300px; border-radius: 50%;
-    background: rgba(255,255,255,.05); bottom: -80px; left: -80px;
   }
 
   /* ── Brand ── */

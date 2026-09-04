@@ -61,6 +61,12 @@ def test_flow_saves_messages(tmp_path, monkeypatch):
     user_id = "+123"
     session_id = "sess-42"
 
+    # Bypass language selection / contact intake - this test is about
+    # message persistence, not those earlier first-touch steps.
+    from core.contacts import state as contact_state
+    contact_state.set_language(user_id, "en")
+    contact_state.set_contact(user_id, skipped=True)
+
     # act
     out, meta = flow.handle_message(user_id, "Hello, I have fever", session_id=session_id)
 

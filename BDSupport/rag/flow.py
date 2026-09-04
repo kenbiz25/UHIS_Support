@@ -10,6 +10,7 @@ import logging
 import re
 
 from config.settings import settings
+from core.i18n import t as _t
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,19 @@ class BotFlow:
         except Exception:
             return False
 
+    _BN_THANKS_RE = r"ধন্যবাদ|শুকরিয়া"
+    _BN_BYE_RE = r"বিদায়|ভালো থাকবেন"
+    _BN_RESOLVED_RE = r"ঠিক হয়ে গেছে|সমাধান হয়েছে|কাজ করছে|ঠিক আছে এখন"
+    # Broad, not an exact match against our own clarify_prompt text - this
+    # also needs to catch the composer's own LLM-generated clarifying
+    # questions (it's instructed to ask one when uncertain), which won't
+    # literally match our hardcoded copy.
+    _CLARIFY_SIGNAL_RE = re.compile(
+        r"could you provide|please provide|i don't have enough|one brief detail|could you share|tell me a bit more|help you faster"
+        r"|আরেকটু বিস্তারিত|আরও তথ্য|যথেষ্ট তথ্য নেই",
+        re.I,
+    )
+
     def _is_short_ack(self, text: str) -> bool:
         """Short acknowledgements that should not trigger follow-ups."""
         if not text:
@@ -189,9 +203,12 @@ class BotFlow:
         t = text.strip().lower()
         if len(t) > 60:
             return False
-        if re.search(r"\b(thank(s| you)?|than you|ty|bye|goodbye|see you|thanks a lot|ok(ay)?|k)\b", t):
+        if re.search(
+            rf"\b(thank(s| you)?|than you|ty|bye|goodbye|see you|thanks a lot|ok(ay)?|k)\b|{self._BN_THANKS_RE}|{self._BN_BYE_RE}",
+            t,
+        ):
             return True
-        if t in ("ok", "okay", "yes", "no", "sure"):
+        if t in ("ok", "okay", "yes", "no", "sure", "হ্যাঁ", "না", "ঠিক আছে"):
             return True
         return False
 
@@ -202,7 +219,10 @@ class BotFlow:
         t = text.strip().lower()
         if len(t) > 120:
             return False
-        return bool(re.search(r"\b(thank(s| you)?|than you|thanks a lot|bye|goodbye|see you|talk later)\b", t))
+        return bool(re.search(
+            rf"\b(thank(s| you)?|than you|thanks a lot|bye|goodbye|see you|talk later)\b|{self._BN_THANKS_RE}|{self._BN_BYE_RE}",
+            t,
+        ))
 
     def _is_resolution_message(self, text: str) -> bool:
         """User indicates issue is resolved or working now."""
@@ -212,7 +232,10 @@ class BotFlow:
         if len(t) > 200:
             return False
         return bool(
-            re.search(r"\b(resolved|fixed|worked|now works|working now|it works|it worked|problem solved|solved|all good|okay now|ok now)\b", t)
+            re.search(
+                rf"\b(resolved|fixed|worked|now works|working now|it works|it worked|problem solved|solved|all good|okay now|ok now)\b|{self._BN_RESOLVED_RE}",
+                t,
+            )
         )
 
     def _mem(self):
@@ -255,6 +278,53 @@ class BotFlow:
 
         return "Issue not captured"
 
+    @staticmethod
+    def _full_transcript(recent: list) -> str:
+        """Plain user/assistant transcript (system markers excluded) for
+        attaching to an auto-logged ticket as its conversation-summary comment."""
+        lines = [
+            f"{m.get('role')}: {m.get('text', '')}"
+            for m in recent
+            if m.get("role") in ("user", "assistant")
+        ]
+        return "\n".join(lines)
+
+    def _auto_log_ticket_on_close(self, user_id: str, session_id: str, mem, contact_state):
+        """Every conversation should leave a record in the main tool, so a
+        resolution/closing message logs a ticket (status=Resolved) with an
+        LLM summary + full transcript - unless this session already has an
+        open ticket tracked (from the explicit handoff/confirmation flow
+        below), in which case we just note the close on that ticket instead
+        of creating a duplicate."""
+        if not (getattr(settings, "ENABLE_TICKETING", True) and mem and session_id):
+            return
+        try:
+            from core.tickets import state as ticket_state
+            open_state = ticket_state.get_state(user_id)
+            if open_state and open_state.get("status") not in ("Resolved", "Closed"):
+                try:
+                    from core.tickets.main_app_client import post_message as _post_ticket_message
+                    _post_ticket_message(open_state["ticket_id"], user_id, "[Conversation closed by user]", sender="system")
+                except Exception:
+                    pass
+                return
+
+            recent_full = mem.get_recent(session_id, limit=50)
+            transcript = self._full_transcript(recent_full)
+            if not transcript:
+                return
+            summary = mem.summarize(session_id) or transcript[:500]
+            contact = (contact_state.get_contact(user_id) if contact_state else None) or {}
+
+            from core.tickets.ticket_manager import create_ticket
+            create_ticket(
+                user_id, summary, transcript,
+                name=contact.get("name", ""), division=contact.get("division", ""),
+                status="Resolved",
+            )
+        except Exception:
+            logger.exception("Auto-log-ticket-on-close failed for %s", user_id)
+
     # ------------------------------------------------------------------
     # Contact intake helpers
     # ------------------------------------------------------------------
@@ -265,7 +335,7 @@ class BotFlow:
     @staticmethod
     def _is_contact_skip(text: str) -> bool:
         t = text.strip().lower()
-        return t in ("skip", "no", "no thanks", "not now", "later", "pass")
+        return t in ("skip", "no", "no thanks", "not now", "later", "pass", "না", "এড়িয়ে যান")
 
     @classmethod
     def _parse_contact_reply(cls, text: str):
@@ -297,7 +367,19 @@ class BotFlow:
         """Main entrypoint called by the webhook to handle and respond to a message."""
         raw = message or ""
 
-        use_bangla = self._detect_bangla(raw)
+        # An explicit language selection (see the language-selection step
+        # below) governs by default; a strong per-message signal (native
+        # Bengali script, or explicitly naming a language) still wins for
+        # that one message, so pasting a Bengali error still gets a Bengali
+        # reply even if English was selected.
+        strong_bangla_signal = self._detect_bangla(raw)
+        stored_language = None
+        try:
+            from core.contacts import state as contact_state
+            stored_language = contact_state.get_language(user_id)
+        except Exception:
+            contact_state = None
+        use_bangla = strong_bangla_signal or stored_language == "bn"
         language = "bn" if use_bangla else "en"
 
         # The spellchecker only knows English — running it on Bangla/Banglish text
@@ -351,6 +433,61 @@ class BotFlow:
         except Exception:
             pass
 
+        # --- Language selection: ask once per phone, before anything else ---
+        # Runs first so the contact-intake prompt and every message after it
+        # can be shown in the chosen language. Same once-per-phone +
+        # resume-with-original-message pattern as contact intake below; the
+        # recovered original message is re-saved to memory (not just kept in
+        # the local `cleaned`/`raw` variables) so contact intake's own
+        # marker-based recovery, running right after this, finds it too.
+        try:
+            if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id and contact_state:
+                if not contact_state.has_language_been_asked(user_id):
+                    # Bangladesh is overwhelmingly Bangla-speaking, so if the
+                    # very first message already strongly signals Bangla
+                    # (native script, or explicitly naming the language),
+                    # don't make them pick from an English-first menu for
+                    # something we can already tell - set it and move
+                    # straight on, using this same message as-is.
+                    if strong_bangla_signal:
+                        contact_state.set_language(user_id, "bn")
+                        use_bangla = True
+                        language = "bn"
+                        # Not a reply to any prompt - this same message is
+                        # the real query, so fall through to contact intake
+                        # using it as-is (no marker to recover from).
+                    else:
+                        recent = mem.get_recent(session_id, limit=6)
+                        already_asked = any(
+                            m.get("role") == "system" and m.get("text") == "lang_asked" for m in recent
+                        )
+
+                        if not already_asked:
+                            lang_prompt = _t("lang_prompt", "en")
+                            try:
+                                self.whatsapp.send_message(user_id, message=lang_prompt)
+                            except Exception:
+                                pass
+                            mem.save_message(session_id, "assistant", lang_prompt)
+                            mem.save_message(session_id, "system", "lang_asked")
+                            return lang_prompt, {"language_prompt_asked": True}
+
+                        # This message is the reply to our language prompt.
+                        sel = cleaned.strip().lower()
+                        chosen_lang = "bn" if sel in ("2", "bangla", "bengali", "bn", "বাংলা") else "en"
+                        contact_state.set_language(user_id, chosen_lang)
+                        use_bangla = chosen_lang == "bn"
+                        language = chosen_lang
+
+                        recent_full = mem.get_recent(session_id, limit=15)
+                        pending = self._extract_pending_issue(recent_full, marker="lang_asked")
+                        if pending and pending != "Issue not captured":
+                            cleaned = pending
+                            raw = pending
+                            mem.save_message(session_id, "user", pending)
+        except Exception:
+            logger.exception("Language selection step failed for %s", user_id)
+
         # --- Contact intake: soft, skippable ask for name/email/division ---
         # Runs once per phone, before any menu/AI reply, so a ticket this
         # conversation later files is already attributable. Phone itself is
@@ -359,8 +496,7 @@ class BotFlow:
         # memory to remember "already asked" and to recover the question
         # that triggered the ask; skipped entirely if memory is disabled.
         try:
-            if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
-                from core.contacts import state as contact_state
+            if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id and contact_state:
                 if not contact_state.has_been_asked(user_id):
                     recent = mem.get_recent(session_id, limit=6)
                     already_asked = any(
@@ -368,11 +504,7 @@ class BotFlow:
                     )
 
                     if not already_asked:
-                        intake_prompt = (
-                            "Before we get started - could you share your name, email, and which "
-                            "division you're in? e.g. \"Rahim Uddin, rahim@example.com, Dhaka\". "
-                            "Reply 'skip' to continue without this."
-                        )
+                        intake_prompt = _t("contact_intake", language)
                         try:
                             self.whatsapp.send_message(user_id, message=intake_prompt)
                         except Exception:
@@ -416,8 +548,7 @@ class BotFlow:
                         conversation_summary = mem.summarize(session_id) if mem else ""
                         from core.tickets.ticket_manager import create_ticket
                         from core.tickets import state as ticket_state
-                        from core.contacts import state as contact_state
-                        contact = contact_state.get_contact(user_id) or {}
+                        contact = (contact_state.get_contact(user_id) if contact_state else None) or {}
                         ticket_id, sl_no = create_ticket(
                             user_id, issue, conversation_summary,
                             name=contact.get("name", ""), division=contact.get("division", ""),
@@ -429,16 +560,9 @@ class BotFlow:
                                 # receive forwarded messages via the API — an
                                 # Excel-fallback id has no ticket in the tool.
                                 ticket_state.set_state(user_id, ticket_id, sl_no, "Open")
-                            outgoing = (
-                                f"Your support ticket has been created.\n"
-                                f"Ticket ID: {sl_no or ticket_id}\n"
-                                "Our team will review it and get back to you shortly."
-                            )
+                            outgoing = _t("ticket_created", language).format(ref=sl_no or ticket_id)
                         else:
-                            outgoing = (
-                                "I tried to create a ticket but something went wrong on our end. "
-                                "Please contact support directly."
-                            )
+                            outgoing = _t("ticket_failed", language)
                         try:
                             self.whatsapp.send_message(user_id, message=outgoing)
                         except Exception:
@@ -448,7 +572,7 @@ class BotFlow:
 
                     elif self._is_ticket_no(cleaned):
                         mem.save_message(session_id, "system", "ticket_declined")
-                        outgoing = "No problem! Let me know if there's anything else I can help you with."
+                        outgoing = _t("ticket_declined", language)
                         try:
                             self.whatsapp.send_message(user_id, message=outgoing)
                         except Exception:
@@ -459,13 +583,16 @@ class BotFlow:
         except Exception:
             pass
 
-        # Resolution messages -> single closing reply + close marker
+        # Resolution messages -> single closing reply, close marker, and an
+        # auto-logged ticket (status=Resolved) so every conversation leaves a
+        # record in the main tool, not just ones that get escalated.
         if self._is_resolution_message(cleaned):
-            outgoing = "Great — glad it’s working now. If you need anything else, just message me anytime."
+            outgoing = _t("resolution_ack", language)
             try:
                 if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
                     mem.save_message(session_id, "assistant", outgoing)
                     mem.save_message(session_id, "system", "conversation_closed")
+                    self._auto_log_ticket_on_close(user_id, session_id, mem, contact_state)
             except Exception:
                 pass
 
@@ -476,13 +603,15 @@ class BotFlow:
 
             return outgoing, {"conversation_closed": True, "resolution_ack": True, "language": language}
 
-        # Closing messages -> single closing reply + close marker
+        # Closing messages -> single closing reply, close marker, and an
+        # auto-logged ticket (status=Resolved), same as resolution above.
         if self._is_closing_message(cleaned):
-            outgoing = "You’re welcome — glad I could help. If you need anything else, just message me anytime."
+            outgoing = _t("closing_ack", language)
             try:
                 if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
                     mem.save_message(session_id, "assistant", outgoing)
                     mem.save_message(session_id, "system", "conversation_closed")
+                    self._auto_log_ticket_on_close(user_id, session_id, mem, contact_state)
             except Exception:
                 pass
 
@@ -510,7 +639,7 @@ class BotFlow:
                 if not menu_shown and not menu_consumed:
                     try:
                         from core.menu import menu_routing
-                        menu_list = menu_routing.show_menu_options(None)
+                        menu_list = menu_routing.show_menu_options(None, language=language)
                         menu_text = "\n".join(menu_list)
                         self.whatsapp.send_message(user_id, message=menu_text)
                         mem.save_message(session_id, "assistant", menu_text)
@@ -524,7 +653,7 @@ class BotFlow:
                     try:
                         from core.menu.menu_routing import process_menu_selection
                         sel = cleaned.strip().lower()
-                        reply, meta = process_menu_selection(sel)
+                        reply, meta = process_menu_selection(sel, language=language)
 
                         # Only treat as menu selection if menu_selected is not None
                         if meta.get("menu_selected") is not None:
@@ -584,8 +713,14 @@ class BotFlow:
         try:
             user_lower = (cleaned or "").strip().lower()
 
-            explicit_re = re.compile(r"\b(connect me to support|please connect.*support|connect me to an agent|escalate to support)\b", re.I)
-            mild_re = re.compile(r"\b(talk to support|talk to a support agent|support agent|human|talk to an agent)\b", re.I)
+            explicit_re = re.compile(
+                r"\b(connect me to support|please connect.*support|connect me to an agent|escalate to support"
+                r"|সাপোর্টে সংযুক্ত করুন|এজেন্টের সাথে সংযুক্ত করুন|সাপোর্টে পাঠান)\b", re.I,
+            )
+            mild_re = re.compile(
+                r"\b(talk to support|talk to a support agent|support agent|human|talk to an agent"
+                r"|মানুষের সাথে কথা|এজেন্টের সাথে কথা|সাপোর্ট এজেন্ট)\b", re.I,
+            )
 
             handoff = False
             if explicit_re.search(user_lower):
@@ -599,7 +734,7 @@ class BotFlow:
                 if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
                     recent_msgs = mem.get_recent(session_id, limit=6)
                     for m in recent_msgs:
-                        if m.get("role") == "assistant" and re.search(r"could you provide|please provide|i don't have enough|one brief detail", m.get("text", ""), re.I):
+                        if m.get("role") == "assistant" and self._CLARIFY_SIGNAL_RE.search(m.get("text", "")):
                             cond = True
                             break
 
@@ -616,10 +751,7 @@ class BotFlow:
                     # Already has an open ticket — the message above was just
                     # forwarded to it. Asking "create a ticket?" again would
                     # be redundant and confusing.
-                    outgoing = (
-                        f"This has been added to your open ticket ({open_state['sl_no']}); "
-                        "our team will follow up."
-                    )
+                    outgoing = _t("handoff_open_ticket_note", language).format(ref=open_state['sl_no'])
                     try:
                         if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
                             mem.save_message(session_id, "assistant", outgoing)
@@ -632,11 +764,7 @@ class BotFlow:
                     return outgoing, meta
 
                 if getattr(settings, "ENABLE_TICKETING", True):
-                    outgoing = (
-                        "I wasn't able to fully resolve this for you. "
-                        "Would you like me to create a support ticket so our team can follow up? "
-                        "Reply Yes to confirm or No to cancel."
-                    )
+                    outgoing = _t("handoff_ticket_offer", language)
                     try:
                         if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
                             mem.save_message(session_id, "assistant", outgoing)
@@ -644,7 +772,7 @@ class BotFlow:
                     except Exception:
                         pass
                 else:
-                    outgoing = "Please hold — connecting you to a support agent now. I'll include a short summary so they can help you faster."
+                    outgoing = _t("handoff_no_ticketing", language)
                     try:
                         if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
                             mem.save_message(session_id, "assistant", outgoing)
@@ -674,14 +802,14 @@ class BotFlow:
         citations = (meta or {}).get("citations", [])
 
         if confidence < threshold:
-            clarify = "Could you share one brief detail (e.g., exact error message, where you are stuck, or device type) so I can guide you accurately?"
+            clarify = _t("clarify_prompt", language)
             already_asked = False
 
             if (meta or {}).get("low_confidence"):
                 already_asked = True
             if (meta or {}).get("citations"):
                 already_asked = True
-            if re.search(r"could you provide|please provide|i don't have enough|one brief detail|could you share", outgoing, re.I):
+            if clarify and clarify in outgoing:
                 already_asked = True
 
             # prevent repeating prompt if it was asked recently
@@ -689,7 +817,7 @@ class BotFlow:
                 if mem and session_id:
                     recent_msgs = mem.get_recent(session_id, limit=6)
                     for m in recent_msgs:
-                        if m.get("role") == "assistant" and re.search(r"could you provide|could you share|one brief detail", m.get("text", ""), re.I):
+                        if m.get("role") == "assistant" and self._CLARIFY_SIGNAL_RE.search(m.get("text", "")):
                             already_asked = True
                             break
             except Exception:

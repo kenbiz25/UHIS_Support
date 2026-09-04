@@ -89,7 +89,7 @@
       <li class="nav-item dropdown">
         <a class="nav-link text-light dropdown-toggle
            {% if request.endpoint in ('tickets.create', 'notifs.inbox') or (request.endpoint and request.endpoint.startswith('kb.') and 'admin' not in request.endpoint) %}fw-semibold{% endif %}"
-           href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+           href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
           <i class="fas fa-ticket-alt me-1"></i>Tickets
         </a>
         <ul class="dropdown-menu dropdown-menu-dark">
@@ -114,7 +114,7 @@
       <li class="nav-item dropdown">
         <a class="nav-link text-light dropdown-toggle
            {% if request.endpoint in ('dashboard.analytics', 'dashboard.reports') %}fw-semibold{% endif %}"
-           href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+           href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
           <i class="fas fa-chart-line me-1"></i>Analytics
         </a>
         <ul class="dropdown-menu dropdown-menu-dark">
@@ -131,7 +131,7 @@
       <li class="nav-item dropdown">
         <a class="nav-link text-light dropdown-toggle
            {% if request.endpoint in ('admin_tools.canned_responses', 'admin_tools.saved_views') %}fw-semibold{% endif %}"
-           href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+           href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
           <i class="fas fa-tools me-1"></i>Tools
         </a>
         <ul class="dropdown-menu dropdown-menu-dark">
@@ -143,7 +143,7 @@
 
       {% if current_user.is_admin() %}
       <li class="nav-item dropdown">
-        <a class="nav-link text-light dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+        <a class="nav-link text-light dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
           <i class="fas fa-cog me-1"></i>Admin
         </a>
         <ul class="dropdown-menu dropdown-menu-dark">
@@ -166,7 +166,7 @@
       </li>
 
       <li class="nav-item dropdown">
-        <a class="nav-link text-light dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+        <a class="nav-link text-light dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
           <i class="fas fa-plug me-1"></i>Integrations
         </a>
         <ul class="dropdown-menu dropdown-menu-dark">
@@ -191,7 +191,7 @@
         <span class="badge bg-info text-white ms-1">{{ current_user.role.value }}</span>
       </span>
       <div class="dropdown">
-        <button class="theme-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
+        <button class="theme-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"
                 title="Change language" aria-label="Change language" style="font-size:.8rem;">
           {{ 'বাং' if session.get('lang') == 'bn' else 'EN' }}
         </button>
@@ -216,7 +216,7 @@
         {% endif %}
       </a>
       <div class="dropdown">
-        <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
+        <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
           <i class="fas fa-ellipsis-v"></i>
         </button>
         <ul class="dropdown-menu dropdown-menu-end">

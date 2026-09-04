@@ -46,12 +46,18 @@ def test_menu_shown_on_first_interaction(tmp_path, monkeypatch):
     user_id = "+123"
     session_id = "sess-menu-1"
 
+    # Bypass language selection / contact intake - this test is about the
+    # first-touch menu specifically, not those earlier first-touch steps.
+    from core.contacts import state as contact_state
+    contact_state.set_language(user_id, "en")
+    contact_state.set_contact(user_id, skipped=True)
+
     out, meta = flow.handle_message(user_id, "Hello", session_id=session_id)
 
     # Should have returned the menu and meta indicating it
     assert meta.get('menu_shown') is True
     assert out is not None
-    assert 'Report a System Issue' in out
+    assert 'Report a Problem' in out
 
     # Session file should include the assistant menu and a system marker
     path = os.path.join(str(tmp_path / "sessions"), f"{session_id}.jsonl")
@@ -82,6 +88,12 @@ def test_menu_selection_response(tmp_path, monkeypatch):
     user_id = "+123"
     session_id = "sess-menu-2"
 
+    # Bypass language selection / contact intake - this test is about menu
+    # selection specifically, not those earlier first-touch steps.
+    from core.contacts import state as contact_state
+    contact_state.set_language(user_id, "en")
+    contact_state.set_contact(user_id, skipped=True)
+
     # First, simulate previous menu shown
     from core.memory.memory_service import ConversationMemory
     mem = ConversationMemory()
@@ -100,7 +112,7 @@ def test_menu_selection_response(tmp_path, monkeypatch):
     out, meta = flow.handle_message(user_id, "1", session_id=session_id)
 
     assert meta.get('menu_selected') == '1'
-    assert 'describe the problem' in out.lower() or 'please briefly describe' in out.lower()
+    assert 'describe' in out.lower()
     # Session should have assistant reply and menu_consumed marker
     path = os.path.join(str(tmp_path / "sessions"), f"{session_id}.jsonl")
     with open(path, 'r', encoding='utf-8') as f:

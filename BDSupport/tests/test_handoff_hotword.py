@@ -42,6 +42,13 @@ def test_handoff_when_options_exhausted(tmp_path, monkeypatch):
     bf = BotFlow(None, None, wa, composer=composer)
 
     session_id = "sess-handoff-1"
+
+    # Bypass language selection / contact intake - this test is about
+    # handoff detection, not those earlier first-touch steps.
+    from core.contacts import state as contact_state
+    contact_state.set_language("+100", "en")
+    contact_state.set_contact("+100", skipped=True)
+
     # Simulate previous assistant clarification
     from core.memory.memory_service import ConversationMemory
     mem = ConversationMemory()
@@ -50,13 +57,18 @@ def test_handoff_when_options_exhausted(tmp_path, monkeypatch):
 
     out, meta = bf.handle_message("+100", "talk to support", session_id=session_id)
     assert meta.get('handoff') is True
-    # With ticketing enabled (the current default), handoff offers to create a support
+    # With ticketing enabled (the current default), handoff offers to log a support
     # ticket rather than announcing a live-agent connection.
-    assert 'create a support ticket' in out.lower()
+    assert 'support ticket' in out.lower()
 
 
 def test_no_handoff_if_not_exhausted(tmp_path, monkeypatch):
     from core.memory import memory_service
+    from config.settings import settings
+
+    # First-touch menu would otherwise intercept this (unseen-session) message before
+    # composer/handoff logic ever runs - this test is about handoff, not the menu.
+    monkeypatch.setattr(settings, 'ENABLE_FIRST_TOUCH_MENU', False)
 
     orig_init = memory_service.ConversationMemory.__init__
 
@@ -70,6 +82,15 @@ def test_no_handoff_if_not_exhausted(tmp_path, monkeypatch):
     bf = BotFlow(None, None, wa, composer=composer)
 
     session_id = "sess-handoff-2"
+
+    # Bypass language selection / contact intake - this test is about
+    # handoff detection, not those earlier first-touch steps. Without this,
+    # the first message just returns the language prompt, and the assertions
+    # below would pass vacuously without exercising handoff logic at all.
+    from core.contacts import state as contact_state
+    contact_state.set_language("+200", "en")
+    contact_state.set_contact("+200", skipped=True)
+
     out, meta = bf.handle_message("+200", "talk to support", session_id=session_id)
     # should not set handoff since nothing was exhausted
     assert not meta.get('handoff')

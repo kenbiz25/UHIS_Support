@@ -1,3 +1,5 @@
+import re
+import secrets
 from urllib.parse import urlparse, urljoin
 
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, session
@@ -13,6 +15,19 @@ def _is_safe_redirect(target):
     ref = urlparse(request.host_url)
     test = urlparse(urljoin(request.host_url, target))
     return test.scheme in ("http", "https") and ref.netloc == test.netloc
+
+
+def _unique_username_from_email(email):
+    """Derive a unique username from an SSO email's local-part, e.g.
+    'rahim.uddin@gmail.com' -> 'rahim.uddin', appending a numeric suffix
+    on collision."""
+    base = re.sub(r"[^a-z0-9._-]", "", email.split("@")[0].lower()) or "user"
+    candidate = base
+    n = 1
+    while User.query.filter_by(username=candidate).first():
+        n += 1
+        candidate = f"{base}{n}"
+    return candidate
 
 auth = Blueprint("auth", __name__)
 
@@ -91,15 +106,28 @@ def oauth_callback(provider):
         return redirect(url_for("auth.login"))
 
     user = User.query.filter(db.func.lower(User.email) == email.lower()).first()
+    created_now = False
     if not user:
+        # Self-service account creation via SSO, same role a regular signup
+        # gets (Role.REPORTER) - reduces admin overhead of pre-creating every
+        # staff account by hand. No country/region assignment is possible
+        # here (SSO doesn't tell us that); an admin can add it later via
+        # Admin -> Users -> Manage Regions if needed.
+        user = User(
+            username=_unique_username_from_email(email),
+            password_hash=generate_password_hash(secrets.token_urlsafe(32)),
+            full_name=display_name or email,
+            role=Role.REPORTER,
+            email=email,
+        )
+        db.session.add(user)
+        db.session.flush()
         db.session.add(LoginAuditLog(
-            username=email, event="login_failed",
+            user_id=user.id, username=user.username, event="account_created",
             ip_address=request.remote_addr,
             user_agent=request.headers.get("User-Agent", "")[:300],
         ))
-        db.session.commit()
-        flash(f"No account found for {email}. Contact your administrator to request access.", "danger")
-        return redirect(url_for("auth.login"))
+        created_now = True
     if not user.is_active:
         flash("Your account is deactivated. Contact your administrator.", "danger")
         return redirect(url_for("auth.login"))
@@ -113,6 +141,13 @@ def oauth_callback(provider):
         user_agent=request.headers.get("User-Agent", "")[:300],
     ))
     db.session.commit()
+    if created_now:
+        flash(
+            f"Welcome, {display_name}! Your account has been created. "
+            "Please take a moment to add your division/district in Preferences.",
+            "success",
+        )
+        return redirect(url_for("auth.preferences"))
     flash(f"Welcome back, {display_name}!", "success")
     return redirect(url_for("dashboard.main"))
 
@@ -356,6 +391,14 @@ def reset_password(token):
 @auth.route("/account/preferences", methods=["GET", "POST"])
 @login_required
 def preferences():
+    # Reporters (the role every self-service signup and SSO auto-created
+    # account gets) don't get any regional-scoping benefit from their own
+    # admin1/admin2 - they only ever see their own tickets regardless of
+    # region - so letting them self-declare it here is a convenience, not a
+    # privilege-escalation surface. Every other role's region is admin-
+    # assigned (see Admin -> Users -> Manage Regions) and stays read-only.
+    can_self_locate = current_user.role == Role.REPORTER
+
     if request.method == "POST":
         full_name = request.form.get("full_name", "").strip()
         if full_name:
@@ -364,7 +407,23 @@ def preferences():
         current_user.timezone = request.form.get("timezone", "UTC")
         current_user.language = request.form.get("language", "en")
         session["lang"] = current_user.language
-        from models import db
+
+        if can_self_locate:
+            admin1_id = request.form.get("admin1_id", type=int) or None
+            admin2_id = request.form.get("admin2_id", type=int) or None
+            admin3_id = request.form.get("admin3_id", type=int) or None
+            current_user.admin1_id = admin1_id
+            current_user.admin2_id = admin2_id
+            current_user.admin3_id = admin3_id
+            if admin2_id:
+                a2 = AdminLevel2.query.get(admin2_id)
+                current_user.district = a2.name if a2 else None
+            else:
+                current_user.district = None
+            if not current_user.country_id:
+                country = Country.query.filter_by(is_active=True).first()
+                current_user.country_id = country.id if country else None
+
         db.session.commit()
         flash("Preferences saved.", "success")
         return redirect(url_for("auth.preferences"))
@@ -378,8 +437,10 @@ def preferences():
         ("sw", "Kiswahili"),
         ("bn", "বাংলা"),
     ]
+    country = Country.query.filter_by(is_active=True).first() if can_self_locate else None
     return render_template("account/preferences.html",
-                           timezones=timezones, languages=languages)
+                           timezones=timezones, languages=languages,
+                           can_self_locate=can_self_locate, country=country)
 
 
 @auth.route("/account/request-deletion", methods=["POST"])

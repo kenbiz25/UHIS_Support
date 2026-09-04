@@ -45,6 +45,24 @@
           <span class="badge bg-light text-dark border ms-1">Tier L{{ current_user.agent_level }}</span>
           {% endif %}
         </div>
+        {% if can_self_locate %}
+        <div class="mb-3">
+          <label class="form-label fw-semibold d-block">{{ country.admin1_label if country else 'Division' }} / {{ country.admin2_label if country else 'District' }}</label>
+          <div class="row g-2">
+            <div class="col-6">
+              <select name="admin1_id" id="prefAdmin1Select" class="form-select form-select-sm" onchange="prefLoadLevel2(this.value)">
+                <option value="">-- Select {{ country.admin1_label if country else 'Division' }} --</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <select name="admin2_id" id="prefAdmin2Select" class="form-select form-select-sm" disabled>
+                <option value="">-- Select above first --</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-text">Not assigned by an admin yet — you can set this yourself. If your role changes later, an admin will manage it from here on.</div>
+        </div>
+        {% else %}
         <div class="mb-3">
           <label class="form-label fw-semibold d-block">Division / District</label>
           {% if current_user.admin1 or current_user.admin2 or current_user.country %}
@@ -58,6 +76,7 @@
           {% endif %}
           <div class="form-text">Assigned by an admin at Admin → Users → Manage Regions.</div>
         </div>
+        {% endif %}
         <div class="mb-1">
           <label class="form-label fw-semibold d-block">Member Since</label>
           <span class="text-muted">{{ current_user.created_at.strftime('%d %b %Y') if current_user.created_at else '—' }}</span>
@@ -120,4 +139,38 @@
     </div>
   </div>
 </div>
+
+{% if can_self_locate and country %}
+<script>
+(function () {
+  const API = "/integrations/api/admin-units";
+  const a1 = document.getElementById('prefAdmin1Select');
+  const a2 = document.getElementById('prefAdmin2Select');
+  const countryId = {{ country.id }};
+  const currentAdmin1 = {{ current_user.admin1_id or 'null' }};
+  const currentAdmin2 = {{ current_user.admin2_id or 'null' }};
+
+  window.prefLoadLevel2 = async function (level1Id, preselect) {
+    a2.innerHTML = '<option value="">-- Loading... --</option>';
+    a2.disabled = true;
+    if (!level1Id) { a2.innerHTML = '<option value="">-- Select above first --</option>'; return; }
+    const data = await fetch(`${API}?level=2&parent_id=${level1Id}&country_id=${countryId}`).then(r => r.json());
+    a2.innerHTML = '<option value="">-- Select --</option>' + data.map(u =>
+      `<option value="${u.id}"${preselect && u.id === preselect ? ' selected' : ''}>${u.name}</option>`
+    ).join('');
+    a2.disabled = false;
+  };
+
+  (async function init() {
+    const data = await fetch(`${API}?level=1&country_id=${countryId}`).then(r => r.json());
+    a1.innerHTML = '<option value="">-- Select --</option>' + data.map(u =>
+      `<option value="${u.id}"${currentAdmin1 && u.id === currentAdmin1 ? ' selected' : ''}>${u.name}</option>`
+    ).join('');
+    if (currentAdmin1) {
+      await window.prefLoadLevel2(currentAdmin1, currentAdmin2);
+    }
+  })();
+})();
+</script>
+{% endif %}
 {% endblock %}

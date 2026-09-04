@@ -65,7 +65,7 @@ def create_ticket(
     """
     from core.tickets.main_app_client import create_ticket as _api_create_ticket
 
-    ticket_id, sl_no = _api_create_ticket(phone_number, issue, conversation_summary, name=name, division=division)
+    ticket_id, sl_no = _api_create_ticket(phone_number, issue, conversation_summary, name=name, division=division, status=status)
     if ticket_id:
         return ticket_id, sl_no
 
