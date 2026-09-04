@@ -57,6 +57,12 @@ class Config:
     # Microsoft Teams
     TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL")         # Incoming Webhook connector URL
 
+    # BDSupport - standalone FastAPI WhatsApp bot (Bangladesh). Shared secret used
+    # both ways: this app calls BD_SUPPORT_BASE_URL to relay agent replies out,
+    # and BDSupport calls back into /api/bd-support/* using the same key.
+    BD_SUPPORT_API_KEY = os.getenv("BD_SUPPORT_API_KEY", "change-bdsupport-key-in-prod")
+    BD_SUPPORT_BASE_URL = os.getenv("BD_SUPPORT_BASE_URL", "")
+
     # Translation (Google Cloud Translation API)
     TRANSLATE_API_KEY = os.getenv("TRANSLATE_API_KEY")
     TRANSLATE_PROVIDER = os.getenv("TRANSLATE_PROVIDER", "google")  # google | libretranslate

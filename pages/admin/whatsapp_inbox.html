@@ -424,10 +424,13 @@
     })
     .then(function (res) { return res.json(); })
     .then(function (data) {
-      if (data && (data.success || data.status === 'ok')) {
+      if (data && data.ok && data.sent) {
         feedback.className      = 'small mb-2 text-success';
         feedback.textContent    = 'Message sent successfully.';
         document.getElementById('replyText').value = '';
+      } else if (data && data.ok && !data.sent) {
+        feedback.className   = 'small mb-2 text-warning';
+        feedback.textContent = 'Saved to the ticket, but WhatsApp delivery failed — retry or reach the user another way.';
       } else {
         feedback.className   = 'small mb-2 text-danger';
         feedback.textContent = (data && data.error) ? data.error : 'Failed to send message.';

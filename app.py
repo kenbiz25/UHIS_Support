@@ -15,7 +15,7 @@ _scheduler_lock = FileLock(os.path.join(os.path.dirname(os.path.abspath(__file__
 from config import Config
 from extensions import limiter, oauth
 from models import (
-    db, User, Role, SLAPolicy, Country, AdminLevel1, IssueCategory, IssueSubcategory,
+    db, User, Role, SLAPolicy, Country, AdminLevel1, AdminLevel2, AdminLevel3, IssueCategory, IssueSubcategory,
     TicketLink, SavedView, CustomField, TicketFieldValue, TimeEntry,
     TelegramSession, CallLog,
     AutomationRule, KBCategory, KBArticle, KBArticleFeedback,
@@ -33,6 +33,7 @@ from routes.kb import kb
 from routes.webhooks import webhooks
 from routes.widget_api import widget_api
 from routes.nudges import nudges
+from routes.bd_support_api import bd_support_api
 
 
 def create_app(config_class=Config):
@@ -101,6 +102,7 @@ def create_app(config_class=Config):
     app.register_blueprint(webhooks)
     app.register_blueprint(widget_api)
     app.register_blueprint(nudges)
+    app.register_blueprint(bd_support_api)
 
     @app.after_request
     def _translate_response(response):
@@ -125,6 +127,7 @@ def create_app(config_class=Config):
         if db.engine.dialect.name == "sqlite":
             _migrate_db()
         _seed_superadmin()
+        _seed_bot_users()
         _seed_sla_policies()
         _seed_countries()
         _seed_issue_taxonomy()
@@ -232,38 +235,38 @@ def _migrate_db():
 
 
 def _seed_sla_policies():
-    # Business day = 8 working hours (08:00–17:00 EAT Mon–Fri, excl. P1/P2 which run 24/7)
+    # Business day = 8 working hours (08:00–17:00 Bangladesh Standard Time, Sun–Thu, excl. P1/P2 which run 24/7)
     MATRIX = [
         dict(
             priority="Critical", code="P1", severity="CRITICAL", display_order=1,
             definition="System inaccessible for 10+ users. Data loss risk. Production outage.",
-            l1_owner="County ICT / HRIO",
+            l1_owner="Digital Support Officer (DSO) / AM",
             first_response_hours=0.25,   # 15 min
             resolution_hours=1.0,         # L1: 1 hour
             l2_resolution_hours=2.0,      # L2: 2 hours
             l3_resolution_hours=4.0,      # L3: 4 hours
             l4_resolution_hours=8.0,      # L4: 8 hours
             auto_escalate=True, auto_escalate_note="YES → L3 immediately",
-            notification_rule="DHA PM + L4 alerted instantly",
+            notification_rule="Medtronic Labs BD Team + L4 alerted instantly",
             is_24_7=True,
         ),
         dict(
             priority="High", code="P2", severity="HIGH", display_order=2,
-            definition="Core module unavailable for county/facility. No workaround exists.",
-            l1_owner="County ICT",
+            definition="Core module unavailable for district/facility. No workaround exists.",
+            l1_owner="Digital Support Officer (DSO)",
             first_response_hours=1.0,
             resolution_hours=4.0,         # L1: 4 hours
             l2_resolution_hours=8.0,      # L2: 8 hours
             l3_resolution_hours=24.0,     # L3: 1 business day
             l4_resolution_hours=48.0,     # L4: 2 business days
             auto_escalate=True, auto_escalate_note="If L1 breaches SLA",
-            notification_rule="L2 + DHA PM notified",
+            notification_rule="L2 + Medtronic Labs BD Team notified",
             is_24_7=True,
         ),
         dict(
             priority="Medium", code="P3", severity="MEDIUM", display_order=3,
             definition="Degraded functionality. Workaround available. Affects subset of users.",
-            l1_owner="TOT / County ICT",
+            l1_owner="Health Educator (HE) / Program Organizer (HRIO Equiv.)",
             first_response_hours=4.0,
             resolution_hours=8.0,         # L1: 1 business day
             l2_resolution_hours=16.0,     # L2: 2 business days
@@ -276,7 +279,7 @@ def _seed_sla_policies():
         dict(
             priority="Low", code="P4", severity="LOW", display_order=4,
             definition="Cosmetic issue. No operational impact. Single user affected.",
-            l1_owner="TOT / Facility",
+            l1_owner="Shashtya Kormi (CHW) / CHCP",
             first_response_hours=8.0,     # 1 business day
             resolution_hours=24.0,        # L1: 3 business days
             l2_resolution_hours=40.0,     # L2: 5 business days
@@ -314,7 +317,7 @@ def _seed_sla_policies():
         ),
         dict(
             priority="Outage", code="OUTAGE", severity="AUTO → L4", display_order=7,
-            definition="Full system down. Multi-county impact.",
+            definition="Full system down. Multi-district impact.",
             l1_owner="Any reporter",
             first_response_hours=0.083,   # Immediate (~5 min)
             resolution_hours=None,        # Bypasses L1/L2/L3
@@ -322,21 +325,21 @@ def _seed_sla_policies():
             l3_resolution_hours=None,     # N/A
             l4_resolution_hours=2.0,      # L4: 2 hours
             auto_escalate=True, auto_escalate_note="YES → L4 immediately",
-            notification_rule="All stakeholders + DHA emergency",
+            notification_rule="All stakeholders + Medtronic Labs BD Team emergency",
             is_24_7=True,
         ),
         # Keep Urgent mapped to same as P1 for backward compat with existing tickets
         dict(
             priority="Urgent", code="P1", severity="CRITICAL", display_order=0,
             definition="Same as P1 Critical — system inaccessible, data loss risk.",
-            l1_owner="County ICT / HRIO",
+            l1_owner="Digital Support Officer (DSO) / AM",
             first_response_hours=0.25,
             resolution_hours=1.0,
             l2_resolution_hours=2.0,
             l3_resolution_hours=4.0,
             l4_resolution_hours=8.0,
             auto_escalate=True, auto_escalate_note="YES → L3 immediately",
-            notification_rule="DHA PM + L4 alerted instantly",
+            notification_rule="Medtronic Labs BD Team + L4 alerted instantly",
             is_24_7=True,
         ),
     ]
@@ -354,28 +357,199 @@ def _seed_sla_policies():
 def _seed_countries():
     # Bangladesh UHIS is Bangladesh-only - see scripts/bangladesh_only_cleanup.py
     # for the migration that removed the other countries this list used to seed.
+    #
+    # Divisions and districts reflect Bangladesh's official structure (8 divisions,
+    # 64 districts) as gazetted today. The proposed Cumilla and Faridpur divisions
+    # (Public Administration Reform Commission recommendation, Dec 2024) are not
+    # yet official and are intentionally not seeded - re-check before adding them.
+    #
+    # Upazilas (~500 units) ARE bulk-seeded below (level3), sourced from a single
+    # web reference and not individually hand-verified at this scale - a handful
+    # of names may be off. Wrong/missing ones can be fixed at /admin/locations
+    # without a code change; this just gets the tool to "mostly complete" instead
+    # of empty.
     COUNTRIES = [
         {
             "name": "Bangladesh", "code": "BD",
             "admin1_label": "Division", "admin2_label": "District", "admin3_label": "Upazila",
+            "timezone": "Asia/Dhaka", "work_start_hour": 8, "work_end_hour": 17, "working_days": "Sun-Thu",
             "level1": ["Dhaka", "Chittagong", "Rajshahi", "Khulna", "Barisal", "Sylhet", "Rangpur", "Mymensingh"],
+            "level2": {
+                "Dhaka": ["Dhaka", "Faridpur", "Tangail", "Gazipur", "Narayanganj", "Kishoreganj",
+                          "Narsingdi", "Munshiganj", "Manikganj", "Gopalganj", "Shariatpur", "Madaripur", "Rajbari"],
+                "Chittagong": ["Chittagong", "Cumilla", "Noakhali", "Rangamati", "Bandarban", "Khagrachhari",
+                               "Brahmanbaria", "Cox's Bazar", "Chandpur", "Lakshmipur", "Feni"],
+                "Rajshahi": ["Rajshahi", "Bogura", "Pabna", "Joypurhat", "Sirajganj", "Naogaon", "Natore", "Chapai Nawabganj"],
+                "Khulna": ["Jashore", "Khulna", "Kushtia", "Satkhira", "Jhenaidah", "Bagerhat",
+                           "Chuadanga", "Magura", "Narail", "Meherpur"],
+                "Barisal": ["Barisal", "Patuakhali", "Bhola", "Pirojpur", "Barguna", "Jhalokati"],
+                "Sylhet": ["Sylhet", "Sunamganj", "Habiganj", "Moulvibazar"],
+                "Rangpur": ["Rangpur", "Nilphamari", "Dinajpur", "Thakurgaon", "Gaibandha",
+                            "Kurigram", "Lalmonirhat", "Panchagarh"],
+                "Mymensingh": ["Mymensingh", "Jamalpur", "Netrokona", "Sherpur"],
+            },
+            "level3": {
+                # ── Rajshahi Division ──
+                "Bogura": ["Adamdighi", "Bogura Sadar", "Dhunat", "Dhupchanchia", "Gabtali", "Kahaloo",
+                           "Nandigram", "Sariakandi", "Shajahanpur", "Sherpur", "Shibganj", "Sonatola", "Mokamtola"],
+                "Chapai Nawabganj": ["Bholahat", "Gomastapur", "Nachole", "Nawabganj Sadar", "Shibganj"],
+                "Joypurhat": ["Akkelpur", "Joypurhat Sadar", "Kalai", "Khetlal", "Panchbibi"],
+                "Naogaon": ["Atrai", "Badalgachhi", "Dhamoirhat", "Manda", "Mohadevpur", "Naogaon Sadar",
+                            "Niamatpur", "Patnitala", "Porsha", "Raninagar", "Sapahar"],
+                "Natore": ["Bagatipara", "Baraigram", "Gurudaspur", "Lalpur", "Naldanga", "Natore Sadar", "Singra"],
+                "Pabna": ["Atgharia", "Bera", "Bhangura", "Chatmohar", "Faridpur", "Ishwardi",
+                          "Pabna Sadar", "Santhia", "Sujanagar"],
+                "Rajshahi": ["Bagha", "Bagmara", "Charghat", "Durgapur", "Godagari", "Mohanpur",
+                             "Paba", "Puthia", "Tanore"],
+                "Sirajganj": ["Belkuchi", "Chauhali", "Kamarkhanda", "Kazipur", "Raiganj", "Shahjadpur",
+                              "Sirajganj Sadar", "Tarash", "Ullahpara"],
+                # ── Rangpur Division ──
+                "Dinajpur": ["Biral", "Birampur", "Birganj", "Bochaganj", "Chirirbandar", "Dinajpur Sadar",
+                             "Ghoraghat", "Hakimpur", "Kaharole", "Khansama", "Nawabganj", "Parbatipur", "Phulbari"],
+                "Gaibandha": ["Gaibandha Sadar", "Gobindaganj", "Palashbari", "Phulchhari", "Sadullapur",
+                              "Sughatta", "Sundarganj"],
+                "Kurigram": ["Bhurungamari", "Char Rajibpur", "Chilmari", "Kurigram Sadar", "Nageshwari",
+                             "Phulbari", "Rajarhat", "Raomari", "Ulipur"],
+                "Lalmonirhat": ["Aditmari", "Hatibandha", "Kaliganj", "Lalmonirhat Sadar", "Patgram"],
+                "Nilphamari": ["Dimla", "Domar", "Jaldhaka", "Kishoreganj", "Nilphamari Sadar", "Saidpur"],
+                "Panchagarh": ["Atwari", "Boda", "Debiganj", "Panchagarh Sadar", "Tetulia"],
+                "Rangpur": ["Badarganj", "Gangachhara", "Kaunia", "Mithapukur", "Pirgachha", "Pirganj",
+                            "Rangpur Sadar", "Taraganj"],
+                "Thakurgaon": ["Baliadangi", "Haripur", "Pirganj", "Ranisankail", "Thakurgaon Sadar"],
+                # ── Mymensingh Division ──
+                "Jamalpur": ["Baksiganj", "Dewanganj", "Islampur", "Jamalpur Sadar", "Madarganj",
+                             "Melandaha", "Sarishabari"],
+                "Mymensingh": ["Bhaluka", "Dhobaura", "Fulbaria", "Gafargaon", "Gauripur", "Haluaghat",
+                               "Ishwarganj", "Muktagachha", "Mymensingh Sadar", "Nandail", "Phulpur", "Trishal"],
+                "Netrokona": ["Atpara", "Barhatta", "Durgapur", "Kalmakanda", "Khaliajuri", "Kendua",
+                              "Madan", "Mohanganj", "Netrokona Sadar", "Purbadhala"],
+                "Sherpur": ["Jhenaigati", "Nakla", "Nalitabari", "Sherpur Sadar", "Sreebardi"],
+                # ── Barisal Division ──
+                "Barguna": ["Amtali", "Bamna", "Barguna Sadar", "Betagi", "Patharghata", "Taltali"],
+                "Barisal": ["Agailjhara", "Babuganj", "Bakerganj", "Banaripara", "Barisal Sadar",
+                            "Gaurnadi", "Hizla", "Mehendiganj", "Muladi", "Wazirpur"],
+                "Bhola": ["Bhola Sadar", "Burhanuddin", "Char Fasson", "Daulatkhan", "Lalmohan",
+                          "Manpura", "Tazumuddin"],
+                "Jhalokati": ["Jhalokati Sadar", "Kathalia", "Nalchity", "Rajapur"],
+                "Patuakhali": ["Bauphal", "Dashmina", "Dumki", "Galachipa", "Kalapara", "Mirzaganj",
+                               "Patuakhali Sadar", "Rangabali"],
+                "Pirojpur": ["Bhandaria", "Indurkani", "Kawkhali", "Mathbaria", "Nazirpur",
+                             "Nesarabad", "Pirojpur Sadar"],
+                # ── Chittagong Division ──
+                "Bandarban": ["Ali Kadam", "Bandarban Sadar", "Lama", "Naikhongchhari", "Rowangchhari",
+                              "Ruma", "Thanchi"],
+                "Brahmanbaria": ["Akhaura", "Bancharampur", "Brahmanbaria Sadar", "Kasba", "Nabinagar",
+                                 "Nasirnagar", "Sarail", "Ashuganj", "Bijoynagar"],
+                "Chandpur": ["Chandpur Sadar", "Faridganj", "Haimchar", "Haziganj", "Kachua",
+                             "Matlab Dakshin", "Matlab Uttar", "Shahrasti"],
+                "Chittagong": ["Anwara", "Banshkhali", "Boalkhali", "Chandanaish", "Fatikchhari",
+                               "Hathazari", "Karnaphuli", "Lohagara", "Mirsharai", "Patiya",
+                               "Rangunia", "Raozan", "Sandwip", "Satkania", "Sitakunda"],
+                "Cumilla": ["Barura", "Brahmanpara", "Burichang", "Chandina", "Chauddagram", "Daudkandi",
+                            "Debidwar", "Homna", "Laksam", "Lalmai", "Muradnagar", "Nangalkot",
+                            "Cumilla Adarsha Sadar", "Meghna", "Titas", "Monohorganj", "Cumilla Sadar Dakshin"],
+                "Cox's Bazar": ["Chakaria", "Cox's Bazar Sadar", "Kutubdia", "Maheshkhali", "Ramu",
+                                "Teknaf", "Ukhia", "Pekua", "Eidgaon"],
+                "Feni": ["Chhagalnaiya", "Daganbhuiyan", "Feni Sadar", "Parshuram", "Sonagazi", "Fulgazi"],
+                "Khagrachhari": ["Dighinala", "Khagrachhari Sadar", "Lakshmichhari", "Mahalchhari",
+                                 "Manikchhari", "Matiranga", "Panchhari", "Ramgarh", "Guimara"],
+                "Lakshmipur": ["Lakshmipur Sadar", "Raipur", "Ramganj", "Ramgati", "Kamalnagar"],
+                "Noakhali": ["Begumganj", "Noakhali Sadar", "Chatkhil", "Companiganj", "Hatiya",
+                             "Senbagh", "Sonaimuri", "Subarnachar", "Kabirhat"],
+                "Rangamati": ["Bagaichhari", "Barkal", "Kawkhali", "Belaichhari", "Kaptai", "Juraichhari",
+                              "Langadu", "Naniyachar", "Rajasthali", "Rangamati Sadar"],
+                # ── Dhaka Division ──
+                "Dhaka": ["Dhamrai", "Dohar", "Keraniganj", "Nawabganj", "Savar"],
+                "Faridpur": ["Alfadanga", "Bhanga", "Boalmari", "Charbhadrasan", "Faridpur Sadar",
+                             "Madhukhali", "Nagarkanda", "Sadarpur", "Saltha"],
+                "Gazipur": ["Gazipur Sadar", "Kaliakair", "Kaliganj", "Kapasia", "Sreepur"],
+                "Gopalganj": ["Gopalganj Sadar", "Kashiani", "Kotalipara", "Muksudpur", "Tungipara"],
+                "Kishoreganj": ["Austagram", "Bajitpur", "Bhairab", "Hossainpur", "Itna", "Karimganj",
+                                "Katiadi", "Kishoreganj Sadar", "Kuliarchar", "Mithamain", "Nikli",
+                                "Pakundia", "Tarail"],
+                "Madaripur": ["Rajoir", "Madaripur Sadar", "Kalkini", "Shibchar", "Dasar"],
+                "Manikganj": ["Daulatpur", "Ghior", "Harirampur", "Manikganj Sadar", "Saturia",
+                              "Shivalaya", "Singair"],
+                "Munshiganj": ["Gazaria", "Lohajang", "Munshiganj Sadar", "Sirajdikhan", "Sreenagar", "Tongibari"],
+                "Narayanganj": ["Araihazar", "Bandar", "Narayanganj Sadar", "Rupganj", "Sonargaon"],
+                "Narsingdi": ["Narsingdi Sadar", "Belabo", "Monohardi", "Palash", "Raipura", "Shibpur"],
+                "Rajbari": ["Baliakandi", "Goalandaghat", "Pangsha", "Rajbari Sadar", "Kalukhali"],
+                "Shariatpur": ["Bhedarganj", "Damudya", "Gosairhat", "Naria", "Shariatpur Sadar", "Zajira"],
+                "Tangail": ["Gopalpur", "Basail", "Bhuapur", "Delduar", "Ghatail", "Kalihati", "Madhupur",
+                            "Mirzapur", "Nagarpur", "Sakhipur", "Dhanbari", "Tangail Sadar"],
+                # ── Khulna Division ──
+                "Bagerhat": ["Bagerhat Sadar", "Chitalmari", "Fakirhat", "Kachua", "Mollahat",
+                             "Mongla", "Morrelganj", "Rampal", "Sarankhola"],
+                "Chuadanga": ["Alamdanga", "Chuadanga Sadar", "Damurhuda", "Jibannagar"],
+                "Jashore": ["Abhaynagar", "Bagherpara", "Chaugachha", "Jhikargachha", "Keshabpur",
+                            "Jashore Sadar", "Manirampur", "Sharsha"],
+                "Jhenaidah": ["Harinakunda", "Jhenaidah Sadar", "Kaliganj", "Kotchandpur", "Maheshpur", "Shailkupa"],
+                "Khulna": ["Batiaghata", "Dacope", "Dumuria", "Dighalia", "Koyra", "Paikgachha",
+                           "Phultala", "Rupsha", "Terokhada"],
+                "Kushtia": ["Bheramara", "Daulatpur", "Khoksa", "Kumarkhali", "Kushtia Sadar", "Mirpur"],
+                "Magura": ["Magura Sadar", "Mohammadpur", "Shalikha", "Sreepur"],
+                "Meherpur": ["Gangni", "Meherpur Sadar", "Mujibnagar"],
+                "Narail": ["Kalia", "Lohagara", "Narail Sadar"],
+                "Satkhira": ["Assasuni", "Debhata", "Kalaroa", "Kaliganj", "Satkhira Sadar", "Shyamnagar", "Tala"],
+                # ── Sylhet Division ──
+                "Habiganj": ["Ajmiriganj", "Bahubal", "Baniyachong", "Chunarughat", "Habiganj Sadar",
+                             "Lakhai", "Madhabpur", "Nabiganj", "Shayestaganj"],
+                "Moulvibazar": ["Barlekha", "Juri", "Kamalganj", "Kulaura", "Moulvibazar Sadar",
+                                "Rajnagar", "Sreemangal"],
+                "Sunamganj": ["Bishwamvarpur", "Chhatak", "Shantiganj", "Derai", "Dharamapasha",
+                              "Dowarabazar", "Jagannathpur", "Jamalganj", "Sullah", "Sunamganj Sadar",
+                              "Tahirpur", "Madhyanagar"],
+                "Sylhet": ["Balaganj", "Beanibazar", "Bishwanath", "Companiganj", "Dakshin Surma",
+                           "Fenchuganj", "Golapganj", "Gowainghat", "Jaintiapur", "Kanaighat",
+                           "Osmani Nagar", "Sylhet Sadar", "Zakiganj"],
+            },
         },
     ]
 
     for cd in COUNTRIES:
         c = Country.query.filter_by(code=cd["code"]).first()
         if not c:
-            c = Country(
-                name=cd["name"], code=cd["code"],
-                admin1_label=cd["admin1_label"],
-                admin2_label=cd["admin2_label"],
-                admin3_label=cd["admin3_label"],
-            )
+            c = Country(name=cd["name"], code=cd["code"])
             db.session.add(c)
             db.session.flush()
+        c.admin1_label = cd["admin1_label"]
+        c.admin2_label = cd["admin2_label"]
+        c.admin3_label = cd["admin3_label"]
+        c.timezone = cd["timezone"]
+        c.work_start_hour = cd["work_start_hour"]
+        c.work_end_hour = cd["work_end_hour"]
+        c.working_days = cd["working_days"]
+
+        level1_by_name = {}
         for l1_name in cd.get("level1", []):
-            if not AdminLevel1.query.filter_by(name=l1_name, country_id=c.id).first():
-                db.session.add(AdminLevel1(name=l1_name, country_id=c.id))
+            l1 = AdminLevel1.query.filter_by(name=l1_name, country_id=c.id).first()
+            if not l1:
+                l1 = AdminLevel1(name=l1_name, country_id=c.id)
+                db.session.add(l1)
+                db.session.flush()
+            level1_by_name[l1_name] = l1
+
+        level2_by_name = {}
+        for l1_name, districts in cd.get("level2", {}).items():
+            l1 = level1_by_name.get(l1_name)
+            if not l1:
+                continue
+            for l2_name in districts:
+                l2 = AdminLevel2.query.filter_by(name=l2_name, level1_id=l1.id, country_id=c.id).first()
+                if not l2:
+                    l2 = AdminLevel2(name=l2_name, level1_id=l1.id, country_id=c.id)
+                    db.session.add(l2)
+                    db.session.flush()
+                level2_by_name[l2_name] = l2
+
+        for l2_name, upazilas in cd.get("level3", {}).items():
+            l2 = level2_by_name.get(l2_name)
+            if not l2:
+                continue
+            for l3_name in upazilas:
+                exists = AdminLevel3.query.filter_by(name=l3_name, level2_id=l2.id, country_id=c.id).first()
+                if not exists:
+                    db.session.add(AdminLevel3(name=l3_name, level2_id=l2.id, country_id=c.id))
     db.session.commit()
 
 
@@ -461,7 +635,17 @@ def _dispatch_wa_csat(app):
             Ticket.current_status.in_(["Resolved", "Closed"]),
             Ticket.solved_date < cutoff,
             Ticket.issue_reporter_contact.isnot(None),
-            Ticket.channel == "whatsapp"
+            Ticket.channel == "whatsapp",
+            # BDSupport-origin tickets have no WhatsAppSession row (that state
+            # machine is native-bot-only) and BDSupport handles its own
+            # resolve/closing UX - don't send a second, mismatched CSAT survey.
+            # (NULL external_id must still pass here - NULL LIKE '...' is NULL,
+            # not True, so an unguarded NOT LIKE would silently drop every
+            # native-bot ticket, which never sets external_id.)
+            db.or_(
+                Ticket.external_id.is_(None),
+                db.not_(Ticket.external_id.like("bdsupport:%")),
+            ),
         ).all()
         for t in resolved:
             csat = CSATRating.query.filter_by(ticket_id=t.id).first()
@@ -516,6 +700,28 @@ def _seed_superadmin():
         if not os.getenv("SUPERADMIN_PASSWORD"):
             print(f"[SECURITY] Default super admin created — username: superadmin / password: {password}")
             print("[SECURITY] Set SUPERADMIN_PASSWORD in .env to control this. Change the password after first login.")
+
+
+def _seed_bot_users():
+    """Non-interactive accounts used only as TicketComment.author_id for
+    messages relayed by the WhatsApp bots, so ticket history/audit logs can
+    tell "the native menu bot said this" apart from "BDSupport's RAG bot said
+    this" apart from an actual human superadmin - instead of every automated
+    comment being attributed to the real superadmin login.
+    """
+    for username, full_name in (
+        ("whatsapp-bot", "WhatsApp Bot (native)"),
+        ("bd-support-bot", "BD Support Bot"),
+    ):
+        if not User.query.filter_by(username=username).first():
+            db.session.add(User(
+                username=username,
+                password_hash=generate_password_hash(secrets.token_urlsafe(32)),
+                full_name=full_name,
+                role=Role.AGENT,
+                is_active=False,
+            ))
+    db.session.commit()
 
 
 if __name__ == "__main__":

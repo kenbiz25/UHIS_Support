@@ -4,7 +4,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User, Role, Country, AdminLevel1, AdminLevel2, AdminLevel3, LoginAuditLog
-from utils import generate_reset_token, verify_reset_token, send_reset_email
+from utils import generate_reset_token, verify_reset_token, send_reset_email, send_notification
 from extensions import limiter, oauth
 from translation import SUPPORTED_LANGUAGES
 
@@ -50,7 +50,8 @@ def login():
         ))
         db.session.commit()
         flash("Invalid username or password.", "danger")
-    return render_template("login.html")
+    countries = Country.query.filter_by(is_active=True).order_by(Country.name).all()
+    return render_template("auth.html", active_view="login", countries=countries)
 
 
 @auth.route("/login/oauth/<provider>")
@@ -250,23 +251,23 @@ def signup():
 
         if not username or not full_name or not password:
             flash("Full name, username and password are required.", "danger")
-            return render_template("signup.html", countries=countries)
+            return render_template("auth.html", active_view="signup", countries=countries)
 
         if len(password) < 8:
             flash("Password must be at least 8 characters.", "danger")
-            return render_template("signup.html", countries=countries)
+            return render_template("auth.html", active_view="signup", countries=countries)
 
         if password != confirm:
             flash("Passwords do not match.", "danger")
-            return render_template("signup.html", countries=countries)
+            return render_template("auth.html", active_view="signup", countries=countries)
 
         if User.query.filter_by(username=username).first():
             flash("That username is already taken. Please choose another.", "danger")
-            return render_template("signup.html", countries=countries)
+            return render_template("auth.html", active_view="signup", countries=countries)
 
         if email and User.query.filter_by(email=email).first():
             flash("An account with that email already exists.", "danger")
-            return render_template("signup.html", countries=countries)
+            return render_template("auth.html", active_view="signup", countries=countries)
 
         country_id = request.form.get("country_id", type=int) or None
         admin1_id  = request.form.get("admin1_id",  type=int) or None
@@ -297,7 +298,7 @@ def signup():
         flash(f"Welcome, {full_name}! Your account has been created.", "success")
         return redirect(url_for("dashboard.main"))
 
-    return render_template("signup.html", countries=countries)
+    return render_template("auth.html", active_view="signup", countries=countries)
 
 
 # ── Forgot Password ────────────────────────────────────────────────────────────
@@ -356,6 +357,10 @@ def reset_password(token):
 @login_required
 def preferences():
     if request.method == "POST":
+        full_name = request.form.get("full_name", "").strip()
+        if full_name:
+            current_user.full_name = full_name
+        current_user.contact = request.form.get("contact", "").strip() or None
         current_user.timezone = request.form.get("timezone", "UTC")
         current_user.language = request.form.get("language", "en")
         session["lang"] = current_user.language
@@ -375,6 +380,31 @@ def preferences():
     ]
     return render_template("account/preferences.html",
                            timezones=timezones, languages=languages)
+
+
+@auth.route("/account/request-deletion", methods=["POST"])
+@login_required
+def request_account_deletion():
+    reason = request.form.get("reason", "").strip()
+    user = current_user
+    body = (
+        f"Account deletion requested via Account Preferences.\n\n"
+        f"Name: {user.full_name}\n"
+        f"Username: {user.username}\n"
+        f"Email: {user.email or '—'}\n"
+        f"Role: {user.role.value}\n"
+        f"Reason given by user: {reason or '(none provided)'}\n"
+    )
+    sent = send_notification(
+        "support@medtroniclabs.org",
+        f"Account deletion request — {user.username}",
+        body,
+    )
+    if sent:
+        flash("Your account deletion request has been sent to support. They'll follow up with you by email.", "success")
+    else:
+        flash("Couldn't send the request right now — please email support@medtroniclabs.org directly.", "danger")
+    return redirect(url_for("auth.preferences"))
 
 
 # ── GDPR Data Export ───────────────────────────────────────────────────────────

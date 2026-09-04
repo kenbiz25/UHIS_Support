@@ -42,7 +42,7 @@
 <div class="alert business-hours-note border-0 d-flex gap-2 align-items-start mb-4">
   <i class="fas fa-clock text-warning mt-1"></i>
   <div class="small">
-    <strong>Business Hours:</strong> 08:00–17:00 EAT, Monday–Friday.
+    <strong>Business Hours:</strong> 08:00–17:00 Bangladesh Standard Time, Sunday–Thursday.
     <strong>P1 / P2 / OTP / OUTAGE SLAs run 24/7.</strong>
     All other priorities follow business hours. Times shown are maximums, not targets.
     Breached SLAs trigger automatic escalation notifications to the next level owner.
@@ -143,10 +143,10 @@
   <div class="card-body">
     <div class="row g-3 small">
       {% set levels = [
-        ('L1','County ICT / HRIO / TOT / Facility Staff','First point of contact. Logs, triages, attempts resolution.','primary'),
-        ('L2','Sub-county / County HMIS Coordinator','Escalated when L1 breaches SLA or issue is beyond L1 scope.','info'),
-        ('L3','National HMIS / Product Team','Escalated for system-level or application bugs requiring dev involvement.','warning'),
-        ('L4','DHA / PM / Executive Leadership','Reserved for outages, data loss, and escalations with policy implications.','danger'),
+        ('L1','First-Level Support','First point of contact. Logs, triages, attempts resolution.','primary'),
+        ('L2','Technical Support Engineers','Escalated when L1 breaches SLA or issue is beyond L1 scope.','info'),
+        ('L3','SPICE / Platform Experts','Escalated for system-level or application bugs requiring dev involvement.','warning'),
+        ('L4','Internal Senior Leadership','Reserved for outages, data loss, and escalations with policy implications.','danger'),
       ] %}
       {% for level, owner, desc, color in levels %}
       <div class="col-md-6 col-xl-3">

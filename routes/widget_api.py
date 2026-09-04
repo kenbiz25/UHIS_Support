@@ -2,7 +2,7 @@ import json
 from flask import Blueprint, request, jsonify, current_app, make_response
 from models import (
     db, Ticket, KBArticle, KBCategory, CSATRating,
-    BrandingSettings, IssueCategory, Country, TicketComment,
+    BrandingSettings, IssueCategory, Country, AdminLevel1, TicketComment,
 )
 from datetime import datetime
 
@@ -55,6 +55,20 @@ def widget_config():
     categories = KBCategory.query.filter_by(is_active=True).order_by(KBCategory.display_order).all()
     countries = Country.query.filter_by(is_active=True).order_by(Country.name).all()
 
+    # Single-country deployment today (Bangladesh) - this is that country's own
+    # top admin level ("Division" for Bangladesh, per Country.admin1_label), not
+    # a generic "region". If more countries are added later this should scope
+    # by the widget's own country instead of "the only active one".
+    division_label = "Division"
+    divisions = []
+    primary_country = countries[0] if len(countries) == 1 else None
+    if primary_country:
+        division_label = primary_country.admin1_label or "Division"
+        divisions = [
+            {"id": r.id, "name": r.name}
+            for r in AdminLevel1.query.filter_by(country_id=primary_country.id).order_by(AdminLevel1.name).all()
+        ]
+
     return jsonify({
         "app_name": branding.app_name,
         "primary_color": branding.primary_color,
@@ -66,6 +80,8 @@ def widget_config():
             {"id": co.id, "name": co.name, "code": co.code}
             for co in countries
         ],
+        "division_label": division_label,
+        "divisions": divisions,
     })
 
 
@@ -219,6 +235,7 @@ def create_ticket():
     priority = (data.get("priority") or "Medium").strip()
     category_id = data.get("category_id") or None
     country_id = data.get("country_id") or None
+    admin1_id = data.get("admin1_id") or data.get("division_id") or None
 
     now = datetime.utcnow()
     sl_no = Ticket.generate_sl_no()
@@ -235,6 +252,7 @@ def create_ticket():
         priority=priority,
         category_id=category_id,
         country_id=country_id,
+        admin1_id=admin1_id,
         current_status="Open",
         reporting_date=now,
         issue_start_date=now,

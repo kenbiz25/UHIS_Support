@@ -29,10 +29,10 @@ class Country(db.Model):
     is_active = db.Column(db.Boolean, default=True)
 
     # Business hours configuration for SLA calculation
-    timezone = db.Column(db.String(50), default="Africa/Nairobi")   # pytz timezone name
+    timezone = db.Column(db.String(50), default="Asia/Dhaka")        # pytz timezone name
     work_start_hour = db.Column(db.Integer, default=8)               # 08:00 local time
     work_end_hour = db.Column(db.Integer, default=17)                # 17:00 local time
-    working_days = db.Column(db.String(20), default="Mon-Fri")       # Mon-Fri | Sun-Thu | Mon-Sat
+    working_days = db.Column(db.String(20), default="Sun-Thu")       # Mon-Fri | Sun-Thu | Mon-Sat — Bangladesh's weekend is Fri-Sat
 
     level1_units = db.relationship("AdminLevel1", backref="country", lazy=True, cascade="all, delete-orphan")
 
@@ -194,8 +194,8 @@ class Ticket(db.Model):
 
     # Intake channel
     channel = db.Column(db.String(20), default="web")   # web | whatsapp | email | api | widget
-    external_id = db.Column(db.String(200))              # dedup key for whatsapp/email
-    whatsapp_phone = db.Column(db.String(30))             # set when channel='whatsapp'; agent replies relay here
+    external_id = db.Column(db.String(200))              # dedup key for whatsapp/email; "bdsupport:<phone>" for BD Support bot tickets
+    whatsapp_phone = db.Column(db.String(30))             # set when channel='whatsapp'; agent replies relay here — via whatsapp_client.send_to_ticket(), which picks the native bot or BD Support based on external_id
 
     # Widget metadata (set when channel='widget')
     widget_app = db.Column(db.String(100))               # which app the widget is embedded in
@@ -344,6 +344,18 @@ class Ticket(db.Model):
         h = int(diff.total_seconds() // 3600)
         m = int((diff.total_seconds() % 3600) // 60)
         return f"{h}h {m}m remaining"
+
+
+def is_bd_support_ticket(ticket):
+    """True for tickets raised by the standalone BDSupport WhatsApp bot (see
+    routes/bd_support_api.py) rather than the native menu-driven bot in
+    routes/webhooks.py. Both use channel='whatsapp', so this external_id
+    prefix is the only thing that tells them apart — every place that sends
+    an outbound WhatsApp message for a ticket must branch on this (see
+    whatsapp_client.send_to_ticket) instead of assuming channel=='whatsapp'
+    always means the native bot's credentials/session apply.
+    """
+    return bool(ticket.external_id) and ticket.external_id.startswith("bdsupport:")
 
 
 # ── Comments ───────────────────────────────────────────────────────────────────

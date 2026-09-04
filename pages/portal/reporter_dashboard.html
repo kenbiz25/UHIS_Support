@@ -247,7 +247,7 @@
 {% block extra_scripts %}
 <script>
 const TICKETS = {{ tickets_json | safe }};
-const PREVIEW_URL = "{{ url_for('tickets.preview', ticket_id=0) }}".replace('/0/', '/');
+const PREVIEW_URL = "{{ url_for('tickets.preview', ticket_id=0) }}".replace('/0/preview', '/');
 
 // ── View switching ────────────────────────────────────────────────────────────
 function setView(v) {

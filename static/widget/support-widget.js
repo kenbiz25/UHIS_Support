@@ -43,6 +43,10 @@
       ai_chat_title: 'AI Assistant', ai_input_placeholder: 'Type your question...',
       ai_thinking: 'Thinking...', ai_contact_intro: "Great, let's get this logged. Please share your details:",
       btn_create_ticket: 'Create Ticket', ai_send: 'Send',
+      ai_intake_intro: "Before we get started, it helps to have your details on file:",
+      label_mobile: 'Mobile Number', placeholder_mobile: 'Your mobile number',
+      label_email: 'Email', placeholder_email: 'Your email address',
+      label_division: 'Division', btn_continue: 'Continue', btn_skip: 'Skip for now',
     },
     bn: {
       aria_support: 'সমর্থন', aria_widget: 'সমর্থন উইজেট',
@@ -66,6 +70,10 @@
       ai_chat_title: 'এআই সহায়ক', ai_input_placeholder: 'আপনার প্রশ্ন লিখুন...',
       ai_thinking: 'ভাবছি...', ai_contact_intro: 'ঠিক আছে, এবার আপনার তথ্য দিন:',
       btn_create_ticket: 'টিকিট তৈরি করুন', ai_send: 'পাঠান',
+      ai_intake_intro: 'শুরু করার আগে, আপনার তথ্য থাকলে সহায়ক হয়:',
+      label_mobile: 'মোবাইল নম্বর', placeholder_mobile: 'আপনার মোবাইল নম্বর',
+      label_email: 'ইমেইল', placeholder_email: 'আপনার ইমেইল ঠিকানা',
+      label_division: 'বিভাগ', btn_continue: 'চালিয়ে যান', btn_skip: 'এখন এড়িয়ে যান',
     },
   };
 
@@ -424,13 +432,22 @@
       view: 'SEARCH', // SEARCH | TICKET_FORM | TICKET_STATUS | AI_CHAT
       ticket: null,   // { sl_no, status, csat_token, rated }
       csatToken: TOKEN || null,
+      config: { divisions: [], division_label: 'Division' },
       ai: {
-        phase: 'chat',   // chat | contact | done
+        phase: 'chat',   // intake | chat | contact | done
         history: [],     // [{ role, content }]
         summary: '',
         ticket: null,    // { sl_no, csat_token }
+        contact: { name: '', phone: '', email: '', divisionId: '', divisionName: '' },
+        intakeDone: false,
       },
     };
+
+    // Best-effort - if this fails the intake form just shows no division options.
+    apiGet('/widget/config').then(function (cfg) {
+      state.config.divisions = cfg.divisions || [];
+      state.config.division_label = cfg.division_label || 'Division';
+    }).catch(function () { /* keep defaults */ });
 
     // ── Render Router ─────────────────────────────────────────────────────────
     function render() {
@@ -506,6 +523,15 @@
       aiBtn.appendChild(aiLabel);
       aiBtn.addEventListener('click', function () {
         state.view = 'AI_CHAT';
+        if (!state.ai.intakeDone) {
+          state.ai.phase = 'intake';
+        } else if (state.ai.phase === 'done' || state.ai.phase === 'contact') {
+          // Starting a fresh conversation after a previous one finished/escalated.
+          state.ai.phase = 'chat';
+          state.ai.history = [];
+          state.ai.summary = '';
+          state.ai.ticket = null;
+        }
         render();
       });
       touchpoints.appendChild(aiBtn);
@@ -872,6 +898,8 @@
         sendBtn.addEventListener('click', send);
         input.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
         input.focus();
+      } else if (state.ai.phase === 'intake') {
+        renderAiIntakeForm(body);
       } else if (state.ai.phase === 'contact') {
         renderAiContactForm(body);
       } else if (state.ai.phase === 'done') {
@@ -879,21 +907,92 @@
       }
     }
 
+    // Soft, skippable ask for name/mobile/email/region shown once before the
+    // first AI reply, so any ticket this conversation ends up filing is
+    // already attributable - see renderAiContactForm below for the fallback
+    // ask if the user skips this and later escalates to a ticket anyway.
+    function renderAiIntakeForm(body) {
+      body.appendChild(h('hr', { className: 'w-divider' }));
+      body.appendChild(h('div', { className: 'w-csat-label', textContent: t('ai_intake_intro') }));
+
+      var c = state.ai.contact;
+
+      var nameField = h('div', { className: 'w-field' }, [
+        h('label', { className: 'w-label', textContent: t('label_name') }),
+      ]);
+      var nameInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_name'), value: c.name || USER_NAME, autocomplete: 'name' });
+      nameField.appendChild(nameInput);
+      body.appendChild(nameField);
+
+      var phoneField = h('div', { className: 'w-field' }, [
+        h('label', { className: 'w-label', textContent: t('label_mobile') }),
+      ]);
+      var phoneInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_mobile'), value: c.phone || USER_CONTACT, autocomplete: 'tel' });
+      phoneField.appendChild(phoneInput);
+      body.appendChild(phoneField);
+
+      var emailField = h('div', { className: 'w-field' }, [
+        h('label', { className: 'w-label', textContent: t('label_email') }),
+      ]);
+      var emailInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_email'), value: c.email || '', autocomplete: 'email' });
+      emailField.appendChild(emailInput);
+      body.appendChild(emailField);
+
+      var divisionField = h('div', { className: 'w-field' }, [
+        h('label', { className: 'w-label', textContent: state.config.division_label || t('label_division') }),
+      ]);
+      var divisionSelect = h('select', { className: 'w-input' });
+      divisionSelect.appendChild(h('option', { value: '', textContent: '—' }));
+      (state.config.divisions || []).forEach(function (r) {
+        var opt = h('option', { value: String(r.id), textContent: r.name });
+        if (c.divisionId && String(c.divisionId) === String(r.id)) opt.selected = true;
+        divisionSelect.appendChild(opt);
+      });
+      divisionField.appendChild(divisionSelect);
+      body.appendChild(divisionField);
+
+      function saveContact() {
+        c.name = nameInput.value.trim();
+        c.phone = phoneInput.value.trim();
+        c.email = emailInput.value.trim();
+        c.divisionId = divisionSelect.value || '';
+        var opt = divisionSelect.options[divisionSelect.selectedIndex];
+        c.divisionName = (opt && opt.value) ? opt.textContent : '';
+        state.ai.intakeDone = true;
+        state.ai.phase = 'chat';
+        render();
+      }
+
+      var continueBtn = h('button', { className: 'w-btn-primary', textContent: t('btn_continue'), style: 'margin-top:4px;' });
+      continueBtn.addEventListener('click', saveContact);
+      body.appendChild(continueBtn);
+
+      var skipBtn = h('button', { className: 'w-btn-secondary', textContent: t('btn_skip'), style: 'margin-top:8px;' });
+      skipBtn.addEventListener('click', function () {
+        state.ai.intakeDone = true;
+        state.ai.phase = 'chat';
+        render();
+      });
+      body.appendChild(skipBtn);
+    }
+
     function renderAiContactForm(body) {
       body.appendChild(h('hr', { className: 'w-divider' }));
       body.appendChild(h('div', { className: 'w-csat-label', textContent: t('ai_contact_intro') }));
 
+      var known = state.ai.contact || {};
+
       var nameField = h('div', { className: 'w-field' }, [
         h('label', { className: 'w-label', innerHTML: t('label_name') + ' <span class="req">*</span>' }),
       ]);
-      var nameInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_name'), value: USER_NAME });
+      var nameInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_name'), value: known.name || USER_NAME });
       nameField.appendChild(nameInput);
       body.appendChild(nameField);
 
       var contactField = h('div', { className: 'w-field' }, [
         h('label', { className: 'w-label', innerHTML: t('label_contact') + ' <span class="req">*</span>' }),
       ]);
-      var contactInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_contact'), value: USER_CONTACT });
+      var contactInput = h('input', { className: 'w-input', type: 'text', placeholder: t('placeholder_contact'), value: known.phone || known.email || USER_CONTACT });
       contactField.appendChild(contactInput);
       body.appendChild(contactField);
 
@@ -919,7 +1018,15 @@
         }).join('\n');
         var issue = state.ai.summary + '\n\n--- AI chat transcript ---\n' + transcript;
 
-        apiPost('/widget/ticket', { name: name, contact: contact, issue: issue, app: APP, page: window.location.href })
+        apiPost('/widget/ticket', {
+          name: name,
+          contact: contact,
+          email: known.email || undefined,
+          admin1_id: known.divisionId || undefined,
+          issue: issue,
+          app: APP,
+          page: window.location.href,
+        })
           .then(function (data) {
             state.ai.ticket = { sl_no: data.sl_no || data.ticket_id, csat_token: data.csat_token };
             state.ai.phase = 'done';
@@ -975,7 +1082,11 @@
 
       var newBtn = h('button', { className: 'w-btn-secondary', textContent: t('btn_submit_another') });
       newBtn.addEventListener('click', function () {
-        state.ai = { phase: 'chat', history: [], summary: '', ticket: null };
+        // Keep the already-collected contact info - no need to ask again.
+        state.ai = {
+          phase: 'chat', history: [], summary: '', ticket: null,
+          contact: state.ai.contact, intakeDone: state.ai.intakeDone,
+        };
         state.view = 'SEARCH';
         render();
       });

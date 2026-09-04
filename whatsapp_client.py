@@ -79,3 +79,44 @@ def send(phone, message):
     if provider == 'twilio':
         return send_twilio(phone, message)
     return send_meta(phone, message)
+
+
+def _relay_via_bd_support(phone, message):
+    """Send a WhatsApp message through the standalone BDSupport bot service
+    (its own Meta credentials/number, not this app's), for tickets raised via
+    that bot. See models.is_bd_support_ticket / routes/bd_support_api.py.
+    """
+    base_url = current_app.config.get('BD_SUPPORT_BASE_URL')
+    api_key = current_app.config.get('BD_SUPPORT_API_KEY')
+    if not base_url or not api_key:
+        logger.warning(
+            '_relay_via_bd_support: BD_SUPPORT_BASE_URL or BD_SUPPORT_API_KEY not configured - message not sent.'
+        )
+        return False
+
+    try:
+        resp = requests.post(
+            f"{base_url.rstrip('/')}/internal/whatsapp/send",
+            json={'phone': phone, 'message': message},
+            headers={'X-API-Key': api_key},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return bool((resp.json() or {}).get('ok', True))
+    except requests.RequestException as exc:
+        logger.warning('_relay_via_bd_support failed for %s: %s', phone, exc)
+        return False
+
+
+def send_to_ticket(ticket, message):
+    """Send an outbound WhatsApp update for a ticket, routed to whichever bot
+    actually owns that phone conversation. channel=='whatsapp' alone doesn't
+    tell you which bot/credentials to use - always send ticket replies
+    through this instead of calling send()/_wa_send() directly with
+    ticket.whatsapp_phone.
+    """
+    from models import is_bd_support_ticket
+
+    if is_bd_support_ticket(ticket):
+        return _relay_via_bd_support(ticket.whatsapp_phone, message)
+    return send(ticket.whatsapp_phone, message)

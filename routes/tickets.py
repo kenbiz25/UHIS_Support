@@ -625,9 +625,11 @@ def add_comment(ticket_id):
                 exclude_user_id=current_user.id,
             )
         # Relay staff replies back to WhatsApp for WhatsApp-originated tickets
+        # (routed to whichever bot/number actually owns this conversation -
+        # see whatsapp_client.send_to_ticket)
         if ticket.whatsapp_phone and current_user.role != Role.REPORTER:
-            from whatsapp_client import send as _wa_send
-            _wa_send(ticket.whatsapp_phone, f"Update on ticket {ticket.sl_no}:\n\n{body}")
+            from whatsapp_client import send_to_ticket
+            send_to_ticket(ticket, f"Update on ticket {ticket.sl_no}:\n\n{body}")
 
     from utils import run_automation_rules
     run_automation_rules(ticket, "reply_received", current_user.id)

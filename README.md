@@ -118,7 +118,7 @@ A multi-channel, intelligent support platform built for Medtronic LABS' Banglade
 | WhatsApp | Meta Cloud API (Graph v18) or Twilio |
 | Widget | Vanilla JS, Shadow DOM, zero dependencies (AI Assistant touchpoint calls OpenAI server-side when configured) |
 
-> **Production path**: Flask → FastAPI; SQLite → PostgreSQL; APScheduler → Celery + Redis for distributed workers. Rate limiting already supports Redis today (`REDIS_URL`) for multi-worker deployments — no code changes needed, just set the variable. Also set `SECRET_KEY`, `API_KEY`, and leave `FLASK_DEBUG` unset/`false`, and run behind a real WSGI server (gunicorn/waitress), not `python app.py`.
+> **Production path**: Flask → FastAPI; SQLite → PostgreSQL; APScheduler → Celery + Redis for distributed workers. Rate limiting already supports Redis today (`REDIS_URL`) for multi-worker deployments — no code changes needed, just set the variable. Also set `SECRET_KEY`, `API_KEY`, and leave `FLASK_DEBUG` unset/`false`, and run behind a real WSGI server (waitress), not `python app.py`.
 
 ---
 
@@ -429,6 +429,43 @@ View at **Admin → Escalation Matrices** (`/admin/escalation-matrices`).
 | Country | Streams | Description |
 |---------|:-------:|-------------|
 | Bangladesh | 2 | SPICE field support (Shashtya Kormi/CHCP) + Internal Technical Escalation (L1–L4) |
+
+### Bangladesh
+
+Two parallel streams, seeded/updated via `run_seed.py` into `CountryEscalationMatrix`:
+
+```mermaid
+flowchart BT
+    subgraph Internal["Internal Technical Escalation"]
+        direction BT
+        L1["L1 — First Level"]
+        L2["L2 — Technical Support"]
+        L3["L3 — Expert Level Support"]
+        L4["L4 — Internal (Executive)"]
+        L1 --> L2 --> L3 --> L4
+    end
+
+    subgraph Field["Field Support — SPICE Bangladesh"]
+        direction BT
+        Users["Shashtya Kormi (CHW) /<br/>Community Health Care Provider (CHCP)"]
+        PO["Program Organizer<br/>(HRIO Equiv.)"]
+        HE["Health Educator (HE)<br/>— AI Integration"]
+        DSO["Digital Support Officer<br/>(DSO) / AM"]
+        BDTeam["Medtronic Labs — BD Team"]
+
+        Users -- "Calls/WhatsApp" --> PO
+        Users -- "Calls/WhatsApp" --> HE
+        PO -- "UV Desk, Google Form" --> DSO
+        HE -- "Calls/WhatsApp" --> DSO
+        DSO -- "Google Form, UV Desk,<br/>Calls/WhatsApp" --> BDTeam
+    end
+
+    Global["Medtronic LABS Support — Global"]
+    BDTeam -- "Jira" --> Global
+```
+
+- **Field Support**: Shashtya Kormi/CHCP report issues via Calls/WhatsApp to Program Organizers and Health Educators (Health Educator routing is AI-assisted), who log them via Google Form/UV Desk to the Digital Support Officer (DSO)/AM, which escalates to the Medtronic Labs BD Team, and finally to Medtronic LABS Support - Global via Jira.
+- **Internal Technical Escalation**: mirrors the ticket system's own L1–L4 agent tiers (see [Agent Tiers](#agent-tiers-l1l4) and [SLA Policies](#sla-policies)) — L1 First Level → L2 Technical Support → L3 Expert Level Support → L4 Internal/Executive.
 
 ---
 

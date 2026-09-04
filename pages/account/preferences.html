@@ -3,9 +3,71 @@
 {% from "_macros.html" import page_header %}
 {% block content %}
 <div class="container py-4" style="max-width:600px">
-  {{ page_header('Account Preferences', icon='fas fa-sliders-h text-primary', subtitle='Timezone and language settings affect how dates and the interface appear to you.') }}
+  {{ page_header('Account Preferences', icon='fas fa-sliders-h text-primary', subtitle='Your account details, and settings that affect how dates and the interface appear to you.') }}
 
   <form method="post">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold">Account Information</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Full Name</label>
+          <input type="text" name="full_name" class="form-control" value="{{ current_user.full_name }}" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Phone / Contact</label>
+          <input type="text" name="contact" class="form-control" value="{{ current_user.contact or '' }}" placeholder="Not set">
+        </div>
+
+        <hr class="my-3">
+        <div class="form-text mb-2"><i class="fas fa-lock me-1"></i>The fields below are set by an admin and can't be changed here.</div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Username</label>
+          <input type="text" class="form-control" value="{{ current_user.username }}" disabled readonly>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Email</label>
+          <input type="text" class="form-control" value="{{ current_user.email or 'Not set' }}" disabled readonly>
+          <div class="form-text">Used for password resets and Google/Microsoft sign-in matching — contact an admin to change it.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold d-block">Role</label>
+          <span class="badge
+            {% if current_user.role.value == 'Super Admin' %}bg-danger
+            {% elif current_user.role.value == 'Admin' %}bg-warning text-dark
+            {% elif current_user.role.value == 'Agent' %}bg-info text-dark
+            {% elif current_user.role.value == 'Viewer' %}bg-purple text-white
+            {% else %}bg-secondary{% endif %}"
+            style="{% if current_user.role.value == 'Viewer' %}background:#6f42c1!important{% endif %}">
+            {{ current_user.role.value }}
+          </span>
+          {% if current_user.role.value == 'Agent' and current_user.agent_level %}
+          <span class="badge bg-light text-dark border ms-1">Tier L{{ current_user.agent_level }}</span>
+          {% endif %}
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold d-block">Division / District</label>
+          {% if current_user.admin1 or current_user.admin2 or current_user.country %}
+          <span class="text-muted">
+            {% if current_user.country %}{{ current_user.country.name }}{% endif %}
+            {% if current_user.admin1 %} / {{ current_user.admin1.name }}{% endif %}
+            {% if current_user.admin2 %} / {{ current_user.admin2.name }}{% endif %}
+          </span>
+          {% else %}
+          <span class="text-muted">Not assigned</span>
+          {% endif %}
+          <div class="form-text">Assigned by an admin at Admin → Users → Manage Regions.</div>
+        </div>
+        <div class="mb-1">
+          <label class="form-label fw-semibold d-block">Member Since</label>
+          <span class="text-muted">{{ current_user.created_at.strftime('%d %b %Y') if current_user.created_at else '—' }}</span>
+          <span class="badge {{ 'bg-success' if current_user.is_active else 'bg-secondary' }} ms-2">
+            {{ 'Active' if current_user.is_active else 'Inactive' }}
+          </span>
+        </div>
+      </div>
+    </div>
+
     <div class="card shadow-sm mb-4">
       <div class="card-header fw-semibold">Localization</div>
       <div class="card-body">
@@ -30,19 +92,32 @@
       </div>
     </div>
 
-    <div class="card shadow-sm mb-4">
-      <div class="card-header fw-semibold">Privacy & Data</div>
-      <div class="card-body">
-        <p class="text-muted small mb-3">Download a copy of all data associated with your account (GDPR Data Portability).</p>
-        <a href="{{ url_for('auth.gdpr_export') }}" class="btn btn-outline-info btn-sm">
-          <i class="fas fa-download me-1"></i>Export My Data (JSON)
-        </a>
-      </div>
-    </div>
-
     <button type="submit" class="btn btn-primary">
       <i class="fas fa-save me-1"></i>Save Preferences
     </button>
   </form>
+
+  <div class="card shadow-sm mb-4 mt-4">
+    <div class="card-header fw-semibold">Privacy & Data</div>
+    <div class="card-body">
+      <p class="text-muted small mb-3">Download a copy of all data associated with your account (GDPR Data Portability).</p>
+      <a href="{{ url_for('auth.gdpr_export') }}" class="btn btn-outline-info btn-sm mb-4">
+        <i class="fas fa-download me-1"></i>Export My Data (JSON)
+      </a>
+
+      <hr>
+      <p class="fw-semibold text-danger mb-1"><i class="fas fa-triangle-exclamation me-1"></i>Request Account Deletion</p>
+      <p class="text-muted small mb-3">This sends a request to support@medtroniclabs.org, who will contact you to confirm and process the deletion. It does not delete your account immediately.</p>
+      <form method="post" action="{{ url_for('auth.request_account_deletion') }}"
+            onsubmit="return confirm('Send an account deletion request to support@medtroniclabs.org?');">
+        <div class="mb-2">
+          <textarea name="reason" class="form-control form-control-sm" rows="2" placeholder="Reason (optional)"></textarea>
+        </div>
+        <button type="submit" class="btn btn-outline-danger btn-sm">
+          <i class="fas fa-user-slash me-1"></i>Request Account Deletion
+        </button>
+      </form>
+    </div>
+  </div>
 </div>
 {% endblock %}

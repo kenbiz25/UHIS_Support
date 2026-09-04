@@ -294,6 +294,18 @@
 
         <!-- Comments tab -->
         <div class="tab-pane fade" id="comments">
+          {% if can_see_internal and ticket.channel == 'whatsapp' and ticket.whatsapp_phone %}
+          <div class="border rounded-3 p-3 mb-4 bg-light-subtle">
+            <h6 class="fw-semibold mb-2"><i class="fab fa-whatsapp me-1 text-success"></i>Reply via WhatsApp</h6>
+            <div class="input-group input-group-sm">
+              <input type="text" id="waReplyInput" class="form-control" placeholder="Message to send to {{ ticket.whatsapp_phone }}...">
+              <button class="btn btn-success" type="button" id="waReplyBtn" onclick="sendWaReply({{ ticket.id }}, '{{ ticket.whatsapp_phone }}')">
+                <i class="fas fa-paper-plane me-1"></i>Send
+              </button>
+            </div>
+            <div id="waReplyStatus" class="small mt-2"></div>
+          </div>
+          {% endif %}
           <div class="d-flex flex-column gap-3 mb-4" id="commentsList">
             {% for c in comments %}
             <div class="comment-item {{ 'internal-note' if c.is_internal else '' }}">
@@ -829,6 +841,45 @@
 
 {% block extra_scripts %}
 <script>
+function sendWaReply(ticketId, phone) {
+  const input = document.getElementById('waReplyInput');
+  const status = document.getElementById('waReplyStatus');
+  const btn = document.getElementById('waReplyBtn');
+  const message = (input.value || '').trim();
+  if (!message) {
+    status.className = 'small mt-2 text-danger';
+    status.textContent = 'Please enter a message.';
+    return;
+  }
+  btn.disabled = true;
+  status.className = 'small mt-2 text-muted';
+  status.textContent = 'Sending…';
+  fetch(`/webhooks/whatsapp/reply/${ticketId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    body: JSON.stringify({ message: message, phone: phone }),
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data && data.ok && data.sent) {
+        status.className = 'small mt-2 text-success';
+        status.textContent = 'Sent.';
+        input.value = '';
+      } else if (data && data.ok && !data.sent) {
+        status.className = 'small mt-2 text-warning';
+        status.textContent = 'Saved to the ticket, but WhatsApp delivery failed — retry or reach the user another way.';
+      } else {
+        status.className = 'small mt-2 text-danger';
+        status.textContent = (data && data.error) ? data.error : 'Failed to send message.';
+      }
+    })
+    .catch(() => {
+      status.className = 'small mt-2 text-danger';
+      status.textContent = 'Network error — please try again.';
+    })
+    .finally(() => { btn.disabled = false; });
+}
+
 // Activate the right tab if URL has #comments or #history
 const hash = window.location.hash;
 if (hash === '#comments') {
@@ -853,7 +904,7 @@ async function translateDesc() {
   const lang = document.getElementById('translateLang').value;
   if (!text || text === '—') return;
   try {
-    const r = await fetch('/api/translate', {
+    const r = await fetch('/integrations/api/translate', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({text, target: lang, source: 'auto'}),

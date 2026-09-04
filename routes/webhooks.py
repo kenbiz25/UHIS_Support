@@ -223,7 +223,7 @@ def _handle_wa_message(phone, body, name):
         else:
             if ticket_id:
                 comment_body = f'[WhatsApp] {name}: {body}'
-                system_user = User.query.filter_by(username='superadmin').first()
+                system_user = User.query.filter_by(username='whatsapp-bot').first()
                 sys_id = system_user.id if system_user else 1
                 comment = TicketComment(
                     ticket_id=ticket_id,
@@ -336,7 +336,8 @@ def whatsapp_agent_reply(ticket_id):
 
     ticket = Ticket.query.get_or_404(ticket_id)
 
-    sent = _wa_send(phone, message)
+    from whatsapp_client import send_to_ticket
+    sent = send_to_ticket(ticket, message)
 
     comment = TicketComment(
         ticket_id=ticket.id,
@@ -346,6 +347,9 @@ def whatsapp_agent_reply(ticket_id):
     db.session.add(comment)
     db.session.commit()
 
+    # sent=False means the comment was saved but delivery failed - callers
+    # must not treat this response as a plain success (see whatsapp_inbox.html
+    # / ticket_detail.html's WhatsApp reply panel, which surfaces this).
     return jsonify({'ok': True, 'sent': sent})
 
 

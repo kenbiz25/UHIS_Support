@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func
 from datetime import datetime, timedelta
 
-from models import db, Ticket, User, Role, Notification, CSATRating, TicketHistory, SavedView, Tag, CallLog, IssueCategory
+from models import db, Ticket, User, Role, Notification, CSATRating, TicketHistory, SavedView, Tag, CallLog, IssueCategory, AdminLevel1
 
 dashboard = Blueprint("dashboard", __name__)
 
@@ -582,6 +582,13 @@ def reports():
                      .group_by(Ticket.district)
                      .filter(Ticket.district.isnot(None), Ticket.district != "")
                      .order_by(func.count(Ticket.id).desc()).limit(10).all())
+    # Division-level breakdown via the structured admin1_id FK - catches tickets
+    # from channels that only capture Division (AI Assistant widget, WhatsApp
+    # bot intake), which never populate the legacy district string above.
+    division_data = (db.session.query(AdminLevel1.name, func.count(Ticket.id))
+                     .join(Ticket, Ticket.admin1_id == AdminLevel1.id)
+                     .group_by(AdminLevel1.name)
+                     .order_by(func.count(Ticket.id).desc()).all())
     platform_data = (db.session.query(Ticket.spice_platform, func.count(Ticket.id))
                      .group_by(Ticket.spice_platform)
                      .filter(Ticket.spice_platform.isnot(None), Ticket.spice_platform != "").all())
@@ -634,32 +641,32 @@ def reports():
     # L2 = escalated once, L3 = twice, L4 = three or more times
     pyramid = [
         {
-            "level": "L1 — First Contact",
-            "owner": "County ICT / HRIO",
+            "level": "L1 — First Level",
+            "owner": "First-Level Support",
             "total":    Ticket.query.filter(Ticket.escalation_level == 0).count(),
             "resolved": Ticket.query.filter(Ticket.escalation_level == 0, Ticket.solved_status == True).count(),
             "color": "#10b981",  # green
             "bg": "success",
         },
         {
-            "level": "L2 — County Coordinator",
-            "owner": "Sub-county / County HMIS",
+            "level": "L2 — Technical Support",
+            "owner": "Technical Support Engineers",
             "total":    Ticket.query.filter(Ticket.escalation_level == 1).count(),
             "resolved": Ticket.query.filter(Ticket.escalation_level == 1, Ticket.solved_status == True).count(),
             "color": "#3b82f6",  # blue
             "bg": "primary",
         },
         {
-            "level": "L3 — National / Product Team",
-            "owner": "National HMIS / Dev Team",
+            "level": "L3 — Expert Level Support",
+            "owner": "SPICE / Platform Experts",
             "total":    Ticket.query.filter(Ticket.escalation_level == 2).count(),
             "resolved": Ticket.query.filter(Ticket.escalation_level == 2, Ticket.solved_status == True).count(),
             "color": "#f59e0b",  # amber
             "bg": "warning",
         },
         {
-            "level": "L4 — Executive / DHA",
-            "owner": "DHA / PM / Leadership",
+            "level": "L4 — Internal (Executive)",
+            "owner": "Internal Senior Leadership",
             "total":    Ticket.query.filter(Ticket.escalation_level >= 3).count(),
             "resolved": Ticket.query.filter(Ticket.escalation_level >= 3, Ticket.solved_status == True).count(),
             "color": "#ef4444",  # red
@@ -671,7 +678,7 @@ def reports():
     return render_template(
         "admin/reports.html",
         status_data=status_data, priority_data=priority_data,
-        district_data=district_data, platform_data=platform_data,
+        district_data=district_data, division_data=division_data, platform_data=platform_data,
         issue_type_data=issue_type_data,
         total=total, resolved=resolved,
         resolution_rate=round(resolved / total * 100, 1) if total else 0,

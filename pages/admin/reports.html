@@ -216,7 +216,17 @@
 <div class="row g-4 mb-4">
   <div class="col-md-6">
     <div class="card shadow-sm border-0 rounded-3">
-      <div class="card-header bg-light py-2 px-4 fw-semibold">Top 10 Districts</div>
+      <div class="card-header bg-light py-2 px-4 fw-semibold">Tickets by Division</div>
+      <div class="card-body p-4">
+        <div class="chart-container">
+          <canvas id="divisionChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-light py-2 px-4 fw-semibold">Tickets by District (Top 10)</div>
       <div class="card-body p-4">
         <div class="chart-container">
           <canvas id="districtChart"></canvas>
@@ -224,7 +234,11 @@
       </div>
     </div>
   </div>
-  <div class="col-md-6">
+</div>
+
+<!-- Charts row 3 -->
+<div class="row g-4 mb-4">
+  <div class="col-md-6 mx-auto">
     <div class="card shadow-sm border-0 rounded-3">
       <div class="card-header bg-light py-2 px-4 fw-semibold">Tickets by Platform</div>
       <div class="card-body p-4">
@@ -307,6 +321,11 @@ buildChart('priorityChart', 'pie',
   {{ priority_data | map(attribute=0) | list | tojson }},
   {{ priority_data | map(attribute=1) | list | tojson }},
   PRIORITY_COLORS);
+
+buildChart('divisionChart', 'bar',
+  {{ division_data | map(attribute=0) | list | tojson }},
+  {{ division_data | map(attribute=1) | list | tojson }},
+  null);
 
 buildChart('districtChart', 'bar',
   {{ district_data | map(attribute=0) | list | tojson }},
