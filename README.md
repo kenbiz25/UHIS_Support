@@ -38,7 +38,7 @@ A multi-channel, intelligent support platform built for Medtronic LABS' Banglade
 
 - **WhatsApp conversational bot** — 5-step guided ticket creation via any WhatsApp number (Meta Cloud API or Twilio); agents reply from the dashboard; status updates pushed back to the user
 - **Embeddable in-app widget** — single `<script>` tag drops a floating support widget into SPICE, Tiberbu, or Afyangu, with three touchpoints: self-service Knowledge Base search + ticket form, a "Chat on WhatsApp" quick link, and an AI Assistant that answers from the KB then collects contact info and files a ticket (falls back to a guided, non-AI intake if no OpenAI key is configured)
-- **SSO login** — optional "Continue with Google" / "Continue with Microsoft" on the login page, signing in to existing accounts matched by email
+- **SSO login** — optional "Continue with Google" / "Continue with Microsoft" on the login page; signs in to an existing account matched by email, or auto-creates a new **Reporter** account on first sign-in (any email domain). New self-service accounts are prompted to complete their Division/District in **Preferences** (Reporters can set this themselves — every other role still requires an admin, since regional scoping is security-relevant for them)
 - **Proactive nudges** — automatic aging alerts for P1/P2 tickets with no agent response after 2 hours; CSAT surveys pushed to WhatsApp 1 hour after ticket resolution
 - **Broadcast messaging** — admins send proactive WhatsApp messages to Agents filtered by country and role
 - **CSAT tracking** — 1–5 star ratings via WhatsApp reply, widget, or email link; agent leaderboard, 30-day trend chart, response rate analytics
@@ -233,7 +233,7 @@ Register your webhook URL: Meta → `https://your-domain.com/webhooks/whatsapp`,
 
 ### SSO — Google / Microsoft (Outlook)
 
-Optional "Continue with Google" / "Continue with Microsoft" buttons on the login page. Leave blank to keep them showing a friendly "not configured" message — no code changes needed either way. Signs in to an **existing** account matched by email; it never creates new accounts or roles.
+Optional "Continue with Google" / "Continue with Microsoft" buttons on the login page. Leave blank to keep them showing a friendly "not configured" message — no code changes needed either way. On first sign-in, matches an **existing** account by email; if none exists, auto-creates a new account with role **Reporter** (any email domain — reduces admin overhead for onboarding field staff) and a login-audit entry marking it `account_created`. New accounts land on **Preferences** with a prompt to fill in their Division/District themselves.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -508,6 +508,16 @@ Bot:  ✅ Ticket TKT-20260609-0042 created. Reply STATUS to check.
 ```
 
 Agents view all conversations at **Channels & Engagement → WhatsApp Inbox** and reply from the dashboard. When a ticket is resolved, a CSAT survey is automatically sent back to the user's WhatsApp.
+
+### BDSupport — Bangladesh WhatsApp Bot (separate service)
+
+A more advanced, standalone FastAPI service in [`BDSupport/`](BDSupport/README.md) — not the simple menu bot above — purpose-built for SPICE's Bangladesh field users, most of whom contact support by voice note. It talks to this app over an internal API (`routes/bd_support_api.py`, `POST /api/bd-support/tickets`) rather than sharing a process.
+
+- **RAG + LLM answers** grounded in a knowledge base (FAISS), not just fixed menus
+- **Full Bengali support** — native Bangla script and romanized "Banglish" detection, voice-note transcription into Bangla script, Bengali replies, and an explicit language-selection step
+- **Voice and image intake** — WhatsApp voice notes are transcribed; screenshots are analyzed, with any caption preserved alongside the image description
+- **Every conversation becomes a ticket** — auto-summarized and logged (status `Resolved`) when a chat closes, not only when a user explicitly asks for one; repeat contact about the same issue is added to the existing open ticket instead of creating a duplicate
+- Deployed independently (see its own README for the Docker/FastAPI setup); runs alongside this app's own WhatsApp webhook, not in place of it
 
 ### Embeddable In-App Widget
 

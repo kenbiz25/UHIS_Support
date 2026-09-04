@@ -1,6 +1,6 @@
 import os
 import secrets
-from flask import Flask, session
+from flask import Flask, session, Response
 from flask_login import LoginManager, current_user
 from werkzeug.security import generate_password_hash
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -103,6 +103,12 @@ def create_app(config_class=Config):
     app.register_blueprint(widget_api)
     app.register_blueprint(nudges)
     app.register_blueprint(bd_support_api)
+
+    @app.route("/robots.txt")
+    def robots_txt():
+        # This is an authenticated internal support portal, not a public
+        # site - it should never be crawled or show up in search results.
+        return Response("User-agent: *\nDisallow: /\n", mimetype="text/plain")
 
     @app.after_request
     def _translate_response(response):

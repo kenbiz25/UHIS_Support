@@ -60,9 +60,14 @@ class ConversationMemory:
         # return last N
         return out[-limit:]
 
-    def summarize(self, session_id: str, force: bool = False) -> str:
+    def summarize(self, session_id: str, force: bool = False, language: str = None) -> str:
         """Produce or return a short summary for the session using the LLM if available.
         Falls back to a naive join of the most recent messages when LLM is not available.
+
+        `language` should be the conversation's own language (e.g. "bn") so the
+        summary is written in the words the user actually used, rather than an
+        English paraphrase a Bangla-reading agent (or the user, if it's ever
+        shown back to them) would have to re-interpret.
         """
         try:
             msgs = self.get_recent(session_id, limit=20)
@@ -77,7 +82,7 @@ class ConversationMemory:
                     "Summarize the following conversation in 2-3 short bullet points for a support agent. "
                     "Keep the summary simple and usable as context for future answers. Do not add extra information.\n\n"
                     f"Conversation:\n{log}\n\nSummary:")
-                resp = chat_complete(prompt, max_tokens=120)
+                resp = chat_complete(prompt, max_tokens=120, language=language)
                 return resp.strip()
             except Exception:
                 # LLM unavailable - return compact joined recent user messages

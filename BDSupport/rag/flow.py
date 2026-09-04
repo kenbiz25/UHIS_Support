@@ -185,7 +185,21 @@ class BotFlow:
 
     _BN_THANKS_RE = r"ধন্যবাদ|শুকরিয়া"
     _BN_BYE_RE = r"বিদায়|ভালো থাকবেন"
-    _BN_RESOLVED_RE = r"ঠিক হয়ে গেছে|সমাধান হয়েছে|কাজ করছে|ঠিক আছে এখন"
+    # "কাজ করছে" ("is working") must not match its negation "কাজ করছে না"
+    # ("is NOT working") - e.g. the menu's own "Report a Problem" example
+    # text ("অ্যাপ কাজ করছে না") would otherwise be misread as a resolution.
+    # Bangla word order is flexible, so both "ঠিক আছে এখন" and "এখন ঠিক আছে"
+    # ("it's okay now" / "now it's okay") need to be covered.
+    _BN_RESOLVED_RE = r"ঠিক হয়ে গেছে|সমাধান হয়েছে|কাজ করছে(?!\s*না)|ঠিক আছে এখন|এখন ঠিক আছে"
+    _NEGATION_BEFORE_RE = re.compile(r"(not|n't|no|never|isn|doesn|didn|won)\s*$", re.I)
+    # A trailing "but it's still broken" clause means the conversation isn't
+    # actually over - "thanks"/"bye" alone shouldn't close it out from under
+    # an unresolved issue.
+    _UNRESOLVED_SIGNAL_RE = re.compile(
+        r"\b(but|however)\b|\bstill\b|\bnot\s+(fixed|resolved|solved|working|done)\b"
+        r"|কিন্তু|তবে|এখনো|এখনও",
+        re.I,
+    )
     # Broad, not an exact match against our own clarify_prompt text - this
     # also needs to catch the composer's own LLM-generated clarifying
     # questions (it's instructed to ask one when uncertain), which won't
@@ -219,10 +233,16 @@ class BotFlow:
         t = text.strip().lower()
         if len(t) > 120:
             return False
-        return bool(re.search(
+        if not re.search(
             rf"\b(thank(s| you)?|than you|thanks a lot|bye|goodbye|see you|talk later)\b|{self._BN_THANKS_RE}|{self._BN_BYE_RE}",
             t,
-        ))
+        ):
+            return False
+        # "Thanks, but it's still broken" is not a goodbye - don't close out
+        # from under an issue the user just said isn't fixed.
+        if self._UNRESOLVED_SIGNAL_RE.search(t):
+            return False
+        return True
 
     def _is_resolution_message(self, text: str) -> bool:
         """User indicates issue is resolved or working now."""
@@ -231,12 +251,19 @@ class BotFlow:
         t = text.strip().lower()
         if len(t) > 200:
             return False
-        return bool(
-            re.search(
-                rf"\b(resolved|fixed|worked|now works|working now|it works|it worked|problem solved|solved|all good|okay now|ok now)\b|{self._BN_RESOLVED_RE}",
-                t,
-            )
-        )
+        # A trailing contrast/still-broken clause ("it works now, but still
+        # crashes sometimes") means this isn't a clean resolution - don't
+        # auto-close the ticket as Resolved on a mixed signal.
+        if self._UNRESOLVED_SIGNAL_RE.search(t):
+            return False
+        pattern = rf"\b(resolved|fixed|worked|now works|working now|it works|it worked|problem solved|solved|all good|okay now|ok now)\b|{self._BN_RESOLVED_RE}"
+        for m in re.finditer(pattern, t):
+            # Skip matches immediately preceded by a negation - e.g. "not
+            # solved", "isn't working now" is the opposite of a resolution.
+            if self._NEGATION_BEFORE_RE.search(t[max(0, m.start() - 15):m.start()]):
+                continue
+            return True
+        return False
 
     def _mem(self):
         """Best-effort ConversationMemory loader."""
@@ -289,7 +316,7 @@ class BotFlow:
         ]
         return "\n".join(lines)
 
-    def _auto_log_ticket_on_close(self, user_id: str, session_id: str, mem, contact_state):
+    def _auto_log_ticket_on_close(self, user_id: str, session_id: str, mem, contact_state, language: str = None):
         """Every conversation should leave a record in the main tool, so a
         resolution/closing message logs a ticket (status=Resolved) with an
         LLM summary + full transcript - unless this session already has an
@@ -313,7 +340,7 @@ class BotFlow:
             transcript = self._full_transcript(recent_full)
             if not transcript:
                 return
-            summary = mem.summarize(session_id) or transcript[:500]
+            summary = mem.summarize(session_id, language=language) or transcript[:500]
             contact = (contact_state.get_contact(user_id) if contact_state else None) or {}
 
             from core.tickets.ticket_manager import create_ticket
@@ -545,7 +572,7 @@ class BotFlow:
                 if ticket_pending:
                     if self._is_ticket_yes(cleaned):
                         issue = self._extract_pending_issue(recent)
-                        conversation_summary = mem.summarize(session_id) if mem else ""
+                        conversation_summary = mem.summarize(session_id, language=language) if mem else ""
                         from core.tickets.ticket_manager import create_ticket
                         from core.tickets import state as ticket_state
                         contact = (contact_state.get_contact(user_id) if contact_state else None) or {}
@@ -592,7 +619,7 @@ class BotFlow:
                 if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
                     mem.save_message(session_id, "assistant", outgoing)
                     mem.save_message(session_id, "system", "conversation_closed")
-                    self._auto_log_ticket_on_close(user_id, session_id, mem, contact_state)
+                    self._auto_log_ticket_on_close(user_id, session_id, mem, contact_state, language=language)
             except Exception:
                 pass
 
@@ -611,7 +638,7 @@ class BotFlow:
                 if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
                     mem.save_message(session_id, "assistant", outgoing)
                     mem.save_message(session_id, "system", "conversation_closed")
-                    self._auto_log_ticket_on_close(user_id, session_id, mem, contact_state)
+                    self._auto_log_ticket_on_close(user_id, session_id, mem, contact_state, language=language)
             except Exception:
                 pass
 

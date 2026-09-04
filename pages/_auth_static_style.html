@@ -17,9 +17,12 @@
 
   .auth-promo-side {
     flex: 1;
+    /* Same focal point (center 60%) as auth.html's overlay, so the photo
+       stays consistently framed across every auth page even though this
+       page's container height differs from the login/signup one. */
     background:
       linear-gradient(145deg, rgba(15,23,60,.62) 0%, rgba(30,16,150,.55) 55%, rgba(60,50,180,.5) 100%),
-      url("{{ url_for('static', filename='images/auth-bangladesh-village.jpg') }}") center/cover no-repeat;
+      url("{{ url_for('static', filename='images/auth-bangladesh-village.jpg') }}") center 60%/cover no-repeat;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     padding: 60px 40px; gap: 32px;

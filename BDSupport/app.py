@@ -201,21 +201,60 @@ def _process_incoming_message(msg: dict, from_: str):
         )
 
         # ---- AUDIO ----
+        # Most real users here are voice-first, so a silent drop on transcription
+        # failure (bad connection, corrupt/expired media, STT error) would leave
+        # them staring at a "delivered" checkmark with no reply at all - always
+        # tell them something went wrong instead of failing silently.
         if not body and msg_type == "audio":
             media_id = (msg.get("audio") or {}).get("id")
             if media_id:
-                audio_bytes, mime = _download_whatsapp_media(media_id)
-                ext = _guess_ext_from_mime(mime, ".ogg")
-                from adapters.llm.openai_client import whisper_transcribe
-                body = whisper_transcribe(audio_bytes, filename=f"voice{ext}")
+                try:
+                    audio_bytes, mime = _download_whatsapp_media(media_id)
+                    ext = _guess_ext_from_mime(mime, ".ogg")
+                    from adapters.llm.openai_client import whisper_transcribe
+                    body = whisper_transcribe(audio_bytes, filename=f"voice{ext}")
+                except Exception:
+                    logger.exception("Voice download/transcription failed | from=%s", from_)
+                if not body:
+                    _safe_send_text(
+                        from_,
+                        "Sorry, I couldn't quite catch that voice message - could you try "
+                        "sending it again, or type your issue instead?\n\n"
+                        "দুঃখিত, ভয়েস মেসেজটি বুঝতে পারিনি - আবার পাঠাতে পারেন, বা আপনার "
+                        "সমস্যাটি টাইপ করে জানাতে পারেন।",
+                    )
+                    return
 
         # ---- IMAGE / SCREENSHOT ----
+        # WhatsApp puts a caption sent alongside an image under
+        # message.image.caption, NOT message.text.body - a caption like "this
+        # error shows up when I try to save a patient record" carries context
+        # the vision model can't infer from pixels alone, so it must not be
+        # dropped in favor of the auto-generated image description.
         if not body and msg_type == "image":
             media_id = (msg.get("image") or {}).get("id")
+            caption = ((msg.get("image") or {}).get("caption") or "").strip()
             if media_id:
-                img_bytes, mime = _download_whatsapp_media(media_id)
-                from adapters.llm.openai_client import analyze_image
-                body = analyze_image(img_bytes, mime)
+                image_desc = ""
+                try:
+                    img_bytes, mime = _download_whatsapp_media(media_id)
+                    from adapters.llm.openai_client import analyze_image
+                    image_desc = analyze_image(img_bytes, mime)
+                except Exception:
+                    logger.exception("Image download/analysis failed | from=%s", from_)
+                if caption and image_desc:
+                    body = f"{caption}\n\n[Image content]: {image_desc}"
+                else:
+                    body = caption or image_desc
+                if not body:
+                    _safe_send_text(
+                        from_,
+                        "Sorry, I couldn't read that image - could you try sending it again, "
+                        "or describe the issue in text?\n\n"
+                        "দুঃখিত, ছবিটি পড়তে পারিনি - আবার পাঠাতে পারেন, বা সমস্যাটি টাইপ করে "
+                        "জানাতে পারেন।",
+                    )
+                    return
 
         if not from_ or not body:
             return

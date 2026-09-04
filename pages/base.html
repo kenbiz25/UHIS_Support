@@ -9,6 +9,11 @@
   {% set app_tagline = branding.tagline if branding and branding.tagline else 'Multi-channel support platform' %}
   {% set og_image_url = request.url_root.rstrip('/') + url_for('static', filename='images/og-image.png') %}
 
+  <!-- This is an authenticated internal support portal, not a public site -
+       it should never be indexed or show up in search results. -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="{{ app_tagline }}">
+
   {% if branding and branding.favicon_url %}
   <link rel="icon" href="{{ branding.favicon_url }}">
   {% else %}

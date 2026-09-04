@@ -327,8 +327,20 @@ class RagComposer:
             return meta_ans, {"confidence": 1.0, "citations": [], "guarded": False, "intent": intent, "low_confidence": False}
 
         # 5️⃣ KB retrieval
+        # Banglish (romanized Bangla, e.g. "app ta kaj korche na") matches the
+        # mostly-English KB poorly by raw embedding similarity - normalize it
+        # to English for retrieval only; `query` itself stays untouched so
+        # intent detection, the LLM prompt, and citations still see the
+        # user's actual words.
+        retrieval_query = query
         try:
-            chunks = self.retriever.retrieve(query, top_k=self.top_k)
+            from adapters.llm.openai_client import prepare_for_rag
+            retrieval_query = prepare_for_rag(query).get("rag_text") or query
+        except Exception:
+            retrieval_query = query
+
+        try:
+            chunks = self.retriever.retrieve(retrieval_query, top_k=self.top_k)
         except Exception:
             chunks = []
 
@@ -342,11 +354,17 @@ class RagComposer:
 
         # 7️⃣ Filter by confidence
         filtered = [c for c in chunks if float(c.get("score", 0.0)) >= self.confidence_threshold]
+        # Still hand the LLM whatever weak/irrelevant chunks exist as best-effort
+        # context (better than nothing), but `low_confidence` must reflect
+        # whether anything actually cleared the bar - not whether this raw
+        # fallback happens to be non-empty (it almost always is), otherwise
+        # a genuinely out-of-KB question never triggers the "don't hallucinate,
+        # ask a clarifying question" guardrail below.
         context_chunks = _truncate_context(filtered or chunks, self.max_context_chars)
         citations = _format_citations(context_chunks)
 
         # 8️⃣ Compose answer via LLM
-        low_confidence = not bool(filtered) and not bool(context_chunks)
+        low_confidence = not bool(filtered)
 
         # If absolutely no context and query is short/ambiguous, guide instead of hallucinating.
         if low_confidence and len(query) < 10:

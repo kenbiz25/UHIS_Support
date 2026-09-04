@@ -97,6 +97,12 @@ def detect_language(text: str) -> Tuple[str, float]:
         "bhalo": 8, "lagbe": 7, "lagche": 7, "pare": 5, "parbo": 6,
         "na": 5, "amar": 8, "tomar": 8, "onk": 5, "onek": 6, "kivabe": 8,
         "kemon acho": 6, "ki hoise": 6, "kivabe korbo": 5,
+        # Support-domain words common in complaints ("app not working",
+        # "can't upload", "not fixed yet") that voice/Banglish typers use.
+        "hocche": 9, "hoyeche": 8, "hoyni": 8, "hoynai": 8, "hoy": 5,
+        "kaj": 7, "korche": 7, "korchena": 8, "thik": 7, "somossha": 9,
+        "shomossha": 9, "sahajjo": 8, "shahajjo": 8, "parchi": 6,
+        "parchina": 8, "dorkar": 7, "problem": 4, "login": 3, "sync": 3,
     })
 
     # English strong function words (negative signal for Banglish).
@@ -172,6 +178,22 @@ def normalize_banglish(text: str, aggressive: bool = True) -> str:
         "lagbe": "need",
         "lagche": "feeling",
         "na": "not",
+        "hocche": "is happening",
+        "hoyeche": "has happened",
+        "hoyni": "has not happened",
+        "hoynai": "has not happened",
+        "hoy": "happens",
+        "kaj": "work",
+        "korche": "is doing",
+        "korchena": "is not doing",
+        "thik": "okay",
+        "somossha": "problem",
+        "shomossha": "problem",
+        "sahajjo": "help",
+        "shahajjo": "help",
+        "parchi": "am able to",
+        "parchina": "am not able to",
+        "dorkar": "need",
     }
 
     parts = text.split()

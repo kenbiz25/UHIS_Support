@@ -211,24 +211,13 @@
     <div class="auth-overlay-container">
       <div class="auth-overlay">
 
+        {# This panel is the one actually visible while the SIGN-IN form is
+           showing (see .auth-overlay-right's transform math above) - so its
+           call to action must invite signup, with a working link to it.
+           Previously this panel (and .auth-overlay-left below) had the
+           opposite content, meaning the sign-in view offered no way to reach
+           signup on desktop at all. #}
         <div class="auth-overlay-panel auth-overlay-left">
-          <img src="{{ url_for('static', filename='images/comm.png') }}" alt="" class="promo-illustration-img">
-          <div class="promo-text">
-            <h3 class="promo-heading">Manage all support tickets in one place</h3>
-            <ul class="promo-features">
-              <li><i class="fas fa-check-circle me-2"></i>Role-based access - Reporter, Agent, Admin</li>
-              <li><i class="fas fa-check-circle me-2"></i>Real-time status &amp; priority tracking</li>
-              <li><i class="fas fa-check-circle me-2"></i>WhatsApp, email &amp; web ticket intake</li>
-              <li><i class="fas fa-check-circle me-2"></i>District-wise analytics &amp; CSV export</li>
-            </ul>
-          </div>
-          <p class="auth-switch-text">
-            Need access?
-            <a href="#" class="auth-switch-link" onclick="showSignup(); return false;">Request an account</a>
-          </p>
-        </div>
-
-        <div class="auth-overlay-panel auth-overlay-right">
           <div class="promo-illustration">
             <div class="promo-center-icon"><i class="fas fa-users"></i></div>
           </div>
@@ -244,6 +233,27 @@
           <p class="auth-switch-text">
             Already have an account?
             <a href="#" class="auth-switch-link" onclick="showSignin(); return false;">Sign in</a>
+          </p>
+        </div>
+
+        {# Visible while the SIGN-UP form is showing - so this one invites
+           signing in instead, for someone who already has an account. #}
+        <div class="auth-overlay-panel auth-overlay-right">
+          <div class="promo-illustration">
+            <div class="promo-center-icon"><i class="fas fa-users"></i></div>
+          </div>
+          <div class="promo-text">
+            <h3 class="promo-heading">Manage all support tickets in one place</h3>
+            <ul class="promo-features">
+              <li><i class="fas fa-check-circle me-2"></i>Role-based access - Reporter, Agent, Admin</li>
+              <li><i class="fas fa-check-circle me-2"></i>Real-time status &amp; priority tracking</li>
+              <li><i class="fas fa-check-circle me-2"></i>WhatsApp, email &amp; web ticket intake</li>
+              <li><i class="fas fa-check-circle me-2"></i>District-wise analytics &amp; CSV export</li>
+            </ul>
+          </div>
+          <p class="auth-switch-text">
+            Need access?
+            <a href="#" class="auth-switch-link" onclick="showSignup(); return false;">Request an account</a>
           </p>
         </div>
 
@@ -324,7 +334,7 @@
     width: 200%; height: 100%;
     background:
       linear-gradient(145deg, rgba(15,23,60,.62) 0%, rgba(30,16,150,.55) 55%, rgba(60,50,180,.5) 100%),
-      url("{{ url_for('static', filename='images/auth-bangladesh-village.jpg') }}") center/cover no-repeat;
+      url("{{ url_for('static', filename='images/auth-bangladesh-village.jpg') }}") center 60%/cover no-repeat;
     transform: translateX(0);
     transition: transform .6s ease-in-out;
   }
