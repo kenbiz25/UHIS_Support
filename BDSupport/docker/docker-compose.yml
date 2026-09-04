@@ -16,9 +16,12 @@ services:
       # container on this same server. Bound to localhost only; only the
       # wa_router dispatcher (also on this box) needs to reach it.
       - "127.0.0.1:8002:8000"
-    depends_on:
-      - db
 
+  # Not started by default (api no longer depends on it) - current
+  # config/settings.py uses a SQLite-based vector store, not Postgres.
+  # Left here in case a future deployment wants it; if so, remap its host
+  # port first since 5432 is already taken by the ComEMR deployment on this
+  # same server.
   db:
     image: postgres:16
     environment:
@@ -26,7 +29,7 @@ services:
       POSTGRES_PASSWORD: pass
       POSTGRES_DB: dbname
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
