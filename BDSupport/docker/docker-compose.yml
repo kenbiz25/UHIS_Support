@@ -12,7 +12,10 @@ services:
       - ../kb:/app/kb
       - ../core/faiss_index:/app/core/faiss_index
     ports:
-      - "8000:8000"
+      # Host 8002, not 8000 - avoids colliding with the existing ComEMR
+      # container on this same server. Bound to localhost only; only the
+      # wa_router dispatcher (also on this box) needs to reach it.
+      - "127.0.0.1:8002:8000"
     depends_on:
       - db
 
