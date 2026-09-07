@@ -822,12 +822,21 @@ def analytics():
         .filter(User.role.in_([Role.ADMIN, Role.AGENT]), User.is_active == True)
         .group_by(User.id).all()
     )
-    agent_res_map = dict(
-        db.session.query(Ticket.assigned_to_id,
-                         func.avg((func.julianday(Ticket.solved_date) - func.julianday(Ticket.created_at)) * 24))
+    # Computed in Python rather than SQL (julianday() is SQLite-only and
+    # raises "function julianday does not exist" on Postgres) so this works
+    # the same regardless of which DATABASE_URL the app is pointed at.
+    _agent_res_hours: dict[int, list[float]] = {}
+    for assigned_to_id, solved_date, created_at in (
+        db.session.query(Ticket.assigned_to_id, Ticket.solved_date, Ticket.created_at)
         .filter(Ticket.solved_status == True, Ticket.solved_date.isnot(None),
+                Ticket.assigned_to_id.isnot(None),
                 Ticket.created_at >= since, Ticket.created_at < until)
-        .group_by(Ticket.assigned_to_id).all())
+        .all()
+    ):
+        _agent_res_hours.setdefault(assigned_to_id, []).append(
+            (solved_date - created_at).total_seconds() / 3600
+        )
+    agent_res_map = {aid: sum(vals) / len(vals) for aid, vals in _agent_res_hours.items()}
     csat_agent_map = dict(
         db.session.query(Ticket.assigned_to_id, func.avg(CSATRating.rating))
         .join(CSATRating, CSATRating.ticket_id == Ticket.id)
