@@ -118,21 +118,44 @@ Copy the **Forwarding URL** and set it as your webhook in **Meta Developer Dashb
 
 ### Production deployment (Docker Compose + systemd)
 
-The actual production deployment runs the FastAPI app inside Docker via `docker/docker-compose.yml`, supervised by a systemd unit rather than a bare `uvicorn` process:
+The actual production deployment runs the FastAPI app inside Docker via `docker/docker-compose.yml`, supervised by a systemd unit (`bdsupport.service`) rather than a bare `uvicorn` process. The service sets `COMPOSE_PROJECT_NAME=bdsupport` and runs from the `docker/` directory — **always build/restart using that same project name and working directory**, otherwise Docker's build cache produces a differently-tagged image that the running service never picks up (this has bitten a real deploy before: `docker compose build` from the wrong directory silently created an unused `docker-api:latest` image while the service kept running the stale `bdsupport-api:latest`). The container binds `127.0.0.1:8002` (not the `8000` used locally above), which the `wa_router` dispatcher on the same box forwards WhatsApp webhook traffic to.
+
+### Refreshing the live server (after a code change)
+
+Whenever code has changed (a merge to main, or a manual fix applied on the box), the running container is on the **old** image until it's rebuilt and restarted — pulling new code alone does nothing to the live process. Full sequence, run from the server:
 
 ```bash
-cd docker
+# 1. Pull the latest code
+cd /path/to/Ticketing_tool          # repo root — wherever it's checked out on the server
+git pull
+
+# 2. Rebuild and restart, from docker/, with the matching project name
+cd BDSupport/docker
 COMPOSE_PROJECT_NAME=bdsupport docker compose build api
-docker compose up -d api
+sudo systemctl restart bdsupport.service
+
+# 3. Confirm the service is actually up
+sudo systemctl status bdsupport.service
 ```
 
-The systemd unit (`bdsupport.service`) sets `COMPOSE_PROJECT_NAME=bdsupport` and runs from the `docker/` directory — **always build/restart using that same project name and working directory**, otherwise Docker's build cache produces a differently-tagged image that the running service never picks up (this has bitten a real deploy before: `docker compose build` from the wrong directory silently created an unused `docker-api:latest` image while the service kept running the stale `bdsupport-api:latest`).
-
-After a code change: rebuild, then `sudo systemctl restart bdsupport.service`. Verify the new code actually landed inside the running container before considering the deploy done, e.g.:
+**Always verify the new code actually landed inside the running container** before considering the refresh done — a restart can silently keep serving a stale image if step 2 built from the wrong directory or under the wrong project name:
 
 ```bash
-docker compose -p bdsupport exec api python -c "from core.i18n import t; print(t('lang_prompt','en'))"
+# Confirm the container is running the commit you expect
+docker compose -p bdsupport exec api git rev-parse --short HEAD
+
+# Confirm a specific recent change is actually present (adjust to whatever
+# you just changed - this checks the current menu copy, for example)
+docker compose -p bdsupport exec api python -c "from core.i18n import t; print(t('first_touch_intake', 'en'))"
 ```
+
+If something looks wrong after a refresh, check the container's logs before doing anything else:
+
+```bash
+docker compose -p bdsupport logs -f --tail=100 api
+```
+
+To roll back, `git checkout <previous-commit>` (or `git revert`), then repeat steps 2-3 above — there's no separate rollback mechanism, a rollback is just a redeploy of older code.
 
 ---
 
