@@ -16,6 +16,7 @@ BDSupport/**/__pycache__/
 BDSupport/core/faiss_index/
 BDSupport/core/memory/sessions/
 BDSupport/core/tickets/state/
+BDSupport/core/tickets/csat_state/
 BDSupport/core/contacts/state/
 BDSupport/core/intake/state/
 BDSupport/tickets.xlsx

@@ -28,6 +28,7 @@ Thumbs.db
 *.ngrok.loglogs/
 core/memory/sessions/
 core/tickets/state/
+core/tickets/csat_state/
 core/contacts/state/
 core/intake/state/
 SPICESupport/

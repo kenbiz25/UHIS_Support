@@ -97,6 +97,14 @@ STRINGS = {
         "intake_7_problem": "Please describe what you need help with, and I'll create a ticket for our team.",
 
         "intake_skip_words": "skip,none,na,n/a,no",
+
+        # --- CSAT (post-resolution survey) ---
+        "csat_prompt": (
+            "Hi! Your ticket *{ref}* has been resolved.\n\n"
+            "How satisfied are you with the support? Reply with a number:\n"
+            "5 = Excellent, 4 = Good, 3 = Average, 2 = Poor, 1 = Very Poor"
+        ),
+        "csat_thanks": "Thank you for the feedback! 🙏",
     },
     "bn": {
         "first_touch_intake": (
@@ -166,6 +174,13 @@ STRINGS = {
         "intake_7_problem": "আপনার কী সাহায্য দরকার তা বলুন, আমি আমাদের টিমের জন্য একটি টিকিট তৈরি করবো।",
 
         "intake_skip_words": "skip,স্কিপ,না,none,na,n/a,no",
+
+        "csat_prompt": (
+            "হ্যালো! আপনার টিকিট *{ref}* সমাধান করা হয়েছে।\n\n"
+            "সাপোর্টে আপনি কতটা সন্তুষ্ট? একটি সংখ্যা (1-5) দিয়ে উত্তর দিন:\n"
+            "5 = চমৎকার, 4 = ভালো, 3 = মোটামুটি, 2 = খারাপ, 1 = খুব খারাপ"
+        ),
+        "csat_thanks": "মতামতের জন্য ধন্যবাদ! 🙏",
     },
 }
 

@@ -98,3 +98,46 @@ def post_message(ticket_id: int, phone: str, body: str, sender: str = "user") ->
     except Exception:
         logger.exception("main_app_client.post_message failed for ticket_id=%s phone=%s", ticket_id, phone)
         return None
+
+
+def get_ticket_status(ticket_id: int, phone: str) -> Optional[dict]:
+    """Poll a ticket's current status/solved_date/CSAT state.
+
+    Used by core/tickets/csat_sweep.py to notice a resolution an agent made
+    in the main app's UI - BDSupport's own cached ticket state (state.py)
+    only refreshes passively when the user happens to message again, so a
+    reliable CSAT survey needs an active poll instead. Returns None on any
+    failure so the sweep just tries again next time.
+    """
+    if not _configured():
+        return None
+    try:
+        resp = httpx.get(
+            f"{settings.MAIN_APP_BASE_URL.rstrip('/')}/api/bd-support/tickets/{ticket_id}/status",
+            params={"phone": phone},
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        logger.exception("main_app_client.get_ticket_status failed for ticket_id=%s phone=%s", ticket_id, phone)
+        return None
+
+
+def submit_csat(ticket_id: int, phone: str, rating: int) -> bool:
+    """Record a 1-5 CSAT rating collected over WhatsApp against this ticket."""
+    if not _configured():
+        return False
+    try:
+        resp = httpx.post(
+            f"{settings.MAIN_APP_BASE_URL.rstrip('/')}/api/bd-support/tickets/{ticket_id}/csat",
+            json={"phone": phone, "rating": rating},
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return bool((resp.json() or {}).get("ok"))
+    except Exception:
+        logger.exception("main_app_client.submit_csat failed for ticket_id=%s phone=%s", ticket_id, phone)
+        return False

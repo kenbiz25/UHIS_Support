@@ -15,7 +15,7 @@ from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy.exc import IntegrityError
 
 from extensions import limiter
-from models import db, Ticket, TicketComment, User, AdminLevel1
+from models import db, Ticket, TicketComment, User, AdminLevel1, CSATRating
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -170,3 +170,71 @@ def post_message(ticket_id):
     db.session.commit()
 
     return jsonify({'ok': True, 'current_status': ticket.current_status}), 200
+
+
+@bd_support_api.route('/tickets/<int:ticket_id>/status', methods=['GET'])
+@limiter.limit('120 per minute')
+def ticket_status(ticket_id):
+    """Lets BDSupport poll whether one of its tickets has been resolved yet,
+    and whether a CSAT rating is still needed - its own conversation state is
+    a passive cache (only refreshed when the user happens to message again),
+    so it can't otherwise learn about a resolution an agent made in this UI.
+    """
+    if not _check_api_key():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    phone = (request.args.get('phone') or '').strip()
+    if not phone:
+        return jsonify({'error': 'phone is required'}), 400
+
+    ticket = Ticket.query.get(ticket_id)
+    if not ticket or ticket.external_id != _external_id(phone):
+        return jsonify({'error': 'Not found'}), 404
+
+    csat = CSATRating.query.filter_by(ticket_id=ticket.id).first()
+    return jsonify({
+        'status': ticket.current_status,
+        'solved_date': ticket.solved_date.isoformat() if ticket.solved_date else None,
+        'csat_submitted': bool(csat and csat.submitted_at),
+    }), 200
+
+
+@bd_support_api.route('/tickets/<int:ticket_id>/csat', methods=['POST'])
+@limiter.limit('30 per minute')
+def submit_csat(ticket_id):
+    """Records a CSAT rating BDSupport collected over WhatsApp for one of
+    its tickets - mirrors the star-rating flow the native bot already has
+    (routes/nudges.py), just reached from the other service instead of this
+    app's own webhook.
+    """
+    if not _check_api_key():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json(force=True, silent=True) or {}
+    phone = (data.get('phone') or '').strip()
+    rating = data.get('rating')
+    try:
+        rating = int(rating)
+    except (TypeError, ValueError):
+        rating = None
+    if not phone or rating not in (1, 2, 3, 4, 5):
+        return jsonify({'error': 'phone and an integer rating 1-5 are required'}), 400
+
+    ticket = Ticket.query.get(ticket_id)
+    if not ticket or ticket.external_id != _external_id(phone):
+        return jsonify({'error': 'Not found'}), 404
+
+    csat = CSATRating.query.filter_by(ticket_id=ticket.id).first()
+    if not csat:
+        csat = CSATRating(ticket_id=ticket.id)
+        db.session.add(csat)
+    if csat.submitted_at:
+        # Already rated - don't let a re-sent reply overwrite the first one.
+        return jsonify({'ok': True, 'already_submitted': True}), 200
+
+    csat.rating = rating
+    csat.submitted_at = datetime.utcnow()
+    db.session.commit()
+
+    logger.info('BDSupport CSAT recorded | ticket_id=%s rating=%s', ticket.id, rating)
+    return jsonify({'ok': True}), 200

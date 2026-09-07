@@ -362,11 +362,14 @@ class BotFlow:
             contact = (contact_state.get_contact(user_id) if contact_state else None) or {}
 
             from core.tickets.ticket_manager import create_ticket
-            create_ticket(
+            ticket_id, sl_no = create_ticket(
                 user_id, summary, transcript,
                 name=contact.get("name", ""), division=contact.get("division", ""),
                 status="Resolved", issue_type="General/Chat (auto-closed)",
             )
+            if ticket_id:
+                from core.tickets import csat_state
+                csat_state.start(user_id, ticket_id, sl_no or str(ticket_id))
         except Exception:
             logger.exception("Auto-log-ticket-on-close failed for %s", user_id)
 
@@ -482,6 +485,17 @@ class BotFlow:
                 sweep_stale()
         except Exception:
             logger.exception("Stale-conversation sweep failed")
+
+        # Same idea, for CSAT: once the main app shows a BDSupport ticket
+        # resolved for a while, send the "how did we do?" survey - see
+        # core/tickets/csat_sweep.py for why this has to poll rather than
+        # wait for a status this bot would otherwise never hear about.
+        try:
+            if getattr(settings, "ENABLE_TICKETING", True):
+                from core.tickets.csat_sweep import sweep_csat
+                sweep_csat()
+        except Exception:
+            logger.exception("CSAT sweep failed")
 
         # If conversation was previously closed and user sends only a short ACK, ignore.
         try:
@@ -633,6 +647,8 @@ class BotFlow:
                                 # receive forwarded messages via the API — an
                                 # Excel-fallback id has no ticket in the tool.
                                 ticket_state.set_state(user_id, ticket_id, sl_no, "Open")
+                                from core.tickets import csat_state
+                                csat_state.start(user_id, ticket_id, sl_no)
                             outgoing = _t("ticket_created", language).format(ref=sl_no or ticket_id)
                         else:
                             outgoing = _t("ticket_failed", language)
@@ -699,6 +715,8 @@ class BotFlow:
                     if ticket_id:
                         if sl_no:
                             ticket_state.set_state(user_id, ticket_id, sl_no, "Open")
+                            from core.tickets import csat_state
+                            csat_state.start(user_id, ticket_id, sl_no)
                         outgoing = _t("ticket_created", language).format(ref=sl_no or ticket_id)
                     else:
                         outgoing = _t("ticket_failed", language)
@@ -719,6 +737,35 @@ class BotFlow:
                     }
         except Exception:
             logger.exception("Structured intake step failed for %s", user_id)
+
+        # --- CSAT reply capture: a bare 1-5 while a rating is pending ---
+        # Deliberately runs after structured intake above, so a digit that's
+        # actually an answer to an active intake field (e.g. "how many SS")
+        # isn't misread as a stale, unrelated CSAT rating.
+        try:
+            if getattr(settings, "ENABLE_TICKETING", True):
+                from core.tickets import csat_state
+                pending = csat_state.get(user_id)
+                if pending and pending.get("prompted_at"):
+                    rating_text = cleaned.strip()
+                    if rating_text in ("1", "2", "3", "4", "5"):
+                        from core.tickets.main_app_client import submit_csat
+                        ok = submit_csat(pending["ticket_id"], user_id, int(rating_text))
+                        if ok:
+                            csat_state.clear(user_id)
+                        outgoing = _t("csat_thanks", language)
+                        try:
+                            self.whatsapp.send_message(user_id, message=outgoing)
+                        except Exception:
+                            pass
+                        try:
+                            if mem and session_id:
+                                mem.save_message(session_id, "assistant", outgoing)
+                        except Exception:
+                            pass
+                        return outgoing, {"csat_submitted": ok, "language": language}
+        except Exception:
+            logger.exception("CSAT reply capture failed for %s", user_id)
 
         # Resolution messages -> single closing reply, close marker, and an
         # auto-logged ticket (status=Resolved) so every conversation leaves a

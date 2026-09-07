@@ -34,8 +34,10 @@ def _reset_state(user_id):
     test, but these live in their own fixed directories."""
     from core.intake import state as intake_state
     from core.tickets import state as ticket_state
+    from core.tickets import csat_state
     intake_state.clear(user_id)
     ticket_state.clear_state(user_id)
+    csat_state.clear(user_id)
 
 
 def test_menu_shown_on_first_interaction(tmp_path, monkeypatch):

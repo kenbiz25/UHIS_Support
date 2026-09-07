@@ -95,8 +95,33 @@ TRANSCRIBE_MODEL=gpt-4o-transcribe
 
 # First-touch numbered menu before free-form RAG
 ENABLE_FIRST_TOUCH_MENU=true
+
+# Safety-net sweeps (see "Scheduled jobs" below)
+STALE_TICKET_MINUTES=20
+CSAT_DELAY_MINUTES=60
 ```
 See `config/settings.py` for the full list of settings and their defaults — most have safe fallbacks and don't need to be set for local development.
+
+---
+
+## ✅ Scheduled jobs
+
+Two safety nets run opportunistically on inbound WhatsApp traffic (throttled to once every few minutes), but that alone doesn't guarantee timely delivery if nobody happens to message the bot for a while - wire both of these into a real scheduler (cron, Windows Task Scheduler, systemd timer) for a reliable cadence independent of traffic:
+
+```bash
+# Every 5-10 minutes: auto-opens a ticket for a reported issue that went
+# quiet without an explicit resolution/close (see core/intake/sweep.py)
+*/10 * * * * cd /path/to/BDSupport && ./venv/bin/python scripts/sweep_stale_conversations.py
+
+# Every 10-15 minutes: sends the "how did we do?" CSAT survey once a ticket
+# has shown Resolved/Closed in the main app for CSAT_DELAY_MINUTES (see
+# core/tickets/csat_sweep.py) - the main app's own CSAT dispatch
+# (app.py's _dispatch_wa_csat) explicitly skips BDSupport-origin tickets,
+# so without this job they never get asked to rate their support
+*/15 * * * * cd /path/to/BDSupport && ./venv/bin/python scripts/sweep_csat.py
+```
+
+Both scripts accept an optional minutes argument to override the configured delay for a single run (e.g. `python scripts/sweep_csat.py 5`, useful for testing).
 
 ---
 
@@ -138,16 +163,13 @@ sudo systemctl restart bdsupport.service
 sudo systemctl status bdsupport.service
 ```
 
-**Always verify the new code actually landed inside the running container** before considering the refresh done — a restart can silently keep serving a stale image if step 2 built from the wrong directory or under the wrong project name:
+**Always verify the new code actually landed inside the running container** before considering the refresh done — a restart can silently keep serving a stale image if step 2 built from the wrong directory or under the wrong project name. The image is built via `COPY . .` (no `.git` directory, and `git` itself isn't installed in the container), so check for a specific recent change directly rather than a commit hash:
 
 ```bash
-# Confirm the container is running the commit you expect
-docker compose -p bdsupport exec api git rev-parse --short HEAD
-
-# Confirm a specific recent change is actually present (adjust to whatever
-# you just changed - this checks the current menu copy, for example)
 docker compose -p bdsupport exec api python -c "from core.i18n import t; print(t('first_touch_intake', 'en'))"
 ```
+
+Adjust the key/import to whatever you actually just changed - the point is confirming the container's code, not this exact string.
 
 If something looks wrong after a refresh, check the container's logs before doing anything else:
 

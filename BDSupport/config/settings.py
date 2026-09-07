@@ -162,6 +162,12 @@ class Settings:
     # opportunistically on inbound traffic - see core/intake/sweep.py.
     STALE_TICKET_MINUTES = _to_int(os.getenv("STALE_TICKET_MINUTES"), 20)
 
+    # How long after a ticket shows Resolved/Closed in the main app before
+    # BDSupport sends the "how did we do?" WhatsApp survey - see
+    # core/tickets/csat_sweep.py. Matches the native bot's own 1-hour delay
+    # (app.py's _dispatch_wa_csat), which explicitly skips BDSupport tickets.
+    CSAT_DELAY_MINUTES = _to_int(os.getenv("CSAT_DELAY_MINUTES"), 60)
+
     # ==================== Ticketing tool integration ====================
     # Base URL of the main Flask ticketing tool, and the shared secret used to
     # call its /api/bd-support/* endpoints. Same key must be set on that app's
