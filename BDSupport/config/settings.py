@@ -155,6 +155,13 @@ class Settings:
     # when the ticketing tool's API (below) is unreachable.
     TICKET_FILE_PATH = os.getenv("TICKET_FILE_PATH", "tickets.xlsx")
 
+    # A reported issue (structured intake left mid-way, or a handoff/RAG
+    # conversation that never got an explicit "thanks"/"resolved" close)
+    # auto-becomes an Open ticket after this many minutes of silence, so it
+    # isn't silently lost when the user just stops replying. Swept
+    # opportunistically on inbound traffic - see core/intake/sweep.py.
+    STALE_TICKET_MINUTES = _to_int(os.getenv("STALE_TICKET_MINUTES"), 20)
+
     # ==================== Ticketing tool integration ====================
     # Base URL of the main Flask ticketing tool, and the shared secret used to
     # call its /api/bd-support/* endpoints. Same key must be set on that app's

@@ -5,7 +5,7 @@ Creates support tickets in the main ticketing tool via main_app_client, so
 agents can see and act on them. Falls back to appending a row to a local
 Excel file (tickets.xlsx) via openpyxl only if that API call fails, so a
 ticket is never silently lost when the two services can't reach each other.
-Each Excel row: Ticket ID | Phone Number | Issue | Status | Created At
+Each Excel row: Ticket ID | Phone Number | Issue Type | Issue | Conversation Summary | Status | Created At
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ except ImportError:
     openpyxl = None  # type: ignore
     _OPENPYXL_AVAILABLE = False
 
-_HEADERS = ["Ticket ID", "Phone Number", "Issue", "Conversation Summary", "Status", "Created At"]
+_HEADERS = ["Ticket ID", "Phone Number", "Issue Type", "Issue", "Conversation Summary", "Status", "Created At"]
 
 
 def _ticket_path() -> Path:
@@ -44,16 +44,17 @@ def _init_workbook(path: Path) -> None:
     # Basic column widths for readability
     ws.column_dimensions["A"].width = 16
     ws.column_dimensions["B"].width = 18
-    ws.column_dimensions["C"].width = 60
-    ws.column_dimensions["D"].width = 80
-    ws.column_dimensions["E"].width = 10
-    ws.column_dimensions["F"].width = 20
+    ws.column_dimensions["C"].width = 30
+    ws.column_dimensions["D"].width = 60
+    ws.column_dimensions["E"].width = 80
+    ws.column_dimensions["F"].width = 10
+    ws.column_dimensions["G"].width = 20
     wb.save(str(path))
 
 
 def create_ticket(
     phone_number: str, issue: str, conversation_summary: str = "", status: str = "Open",
-    name: str = "", division: str = "",
+    name: str = "", division: str = "", issue_type: str = "",
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Create a ticket in the main ticketing tool. Returns (ticket_id, sl_no) on
@@ -65,16 +66,21 @@ def create_ticket(
     """
     from core.tickets.main_app_client import create_ticket as _api_create_ticket
 
-    ticket_id, sl_no = _api_create_ticket(phone_number, issue, conversation_summary, name=name, division=division, status=status)
+    ticket_id, sl_no = _api_create_ticket(
+        phone_number, issue, conversation_summary,
+        name=name, division=division, status=status, issue_type=issue_type,
+    )
     if ticket_id:
         return ticket_id, sl_no
 
     logger.warning("Ticketing API unavailable — falling back to Excel for %s", phone_number)
-    excel_id = _create_ticket_excel(phone_number, issue, conversation_summary, status)
+    excel_id = _create_ticket_excel(phone_number, issue, conversation_summary, status, issue_type=issue_type)
     return excel_id, None
 
 
-def _create_ticket_excel(phone_number: str, issue: str, conversation_summary: str = "", status: str = "Open") -> Optional[str]:
+def _create_ticket_excel(
+    phone_number: str, issue: str, conversation_summary: str = "", status: str = "Open", issue_type: str = "",
+) -> Optional[str]:
     """
     Append a new ticket row to the Excel file and return the ticket ID.
     Returns None if openpyxl is not installed or write fails.
@@ -92,7 +98,7 @@ def _create_ticket_excel(phone_number: str, issue: str, conversation_summary: st
 
         wb = openpyxl.load_workbook(str(path))
         ws = wb["Tickets"]
-        ws.append([ticket_id, phone_number, issue[:500], conversation_summary[:2000], status, created_at])
+        ws.append([ticket_id, phone_number, issue_type[:100], issue[:500], conversation_summary[:2000], status, created_at])
         wb.save(str(path))
 
         logger.info("Ticket created (Excel fallback) | id=%s phone=%s", ticket_id, phone_number)

@@ -36,7 +36,7 @@ def _configured() -> bool:
 
 def create_ticket(
     phone: str, issue: str, conversation_summary: str,
-    name: str = "", division: str = "", status: str = "Open",
+    name: str = "", division: str = "", status: str = "Open", issue_type: str = "",
 ) -> Tuple[Optional[int], Optional[str]]:
     """Create (or fetch the existing open) ticket for this phone.
 
@@ -46,6 +46,9 @@ def create_ticket(
     is used when the bot is auto-logging a conversation that already resolved
     itself via chat (see rag/flow.py's resolution/closing handling), so it
     doesn't land in agents' Open queue needing action that was already taken.
+    issue_type is the structured-intake category label (e.g. "Account & Access"),
+    populating the same Issue Type column the legacy spreadsheet tracker used -
+    blank for the free-text handoff/auto-close paths that don't have one.
 
     Returns (ticket_id, sl_no) on success, (None, None) if the ticketing
     tool couldn't be reached or is not configured.
@@ -60,6 +63,7 @@ def create_ticket(
             json={
                 "phone": phone, "issue": issue, "conversation_summary": conversation_summary,
                 "name": name or None, "division": division or None, "status": status,
+                "issue_type": issue_type or None,
             },
             headers=_headers(),
             timeout=_TIMEOUT,

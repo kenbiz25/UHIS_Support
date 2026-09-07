@@ -29,6 +29,7 @@ Thumbs.db
 core/memory/sessions/
 core/tickets/state/
 core/contacts/state/
+core/intake/state/
 SPICESupport/
 logs/
 

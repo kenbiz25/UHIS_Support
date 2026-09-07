@@ -17,6 +17,7 @@ BDSupport/core/faiss_index/
 BDSupport/core/memory/sessions/
 BDSupport/core/tickets/state/
 BDSupport/core/contacts/state/
+BDSupport/core/intake/state/
 BDSupport/tickets.xlsx
 
 # ── Environment & Secrets ───────────────────────────────────────────────────────

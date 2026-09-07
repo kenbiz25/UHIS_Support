@@ -77,6 +77,7 @@ def upsert_ticket():
     name = (data.get('name') or phone).strip()
     division = (data.get('division') or '').strip()
     conversation_summary = (data.get('conversation_summary') or '').strip()
+    issue_type = (data.get('issue_type') or '').strip()
     # "Resolved" is used when the bot auto-logs a conversation that already
     # resolved itself via chat, so it's a record for reporting rather than
     # landing in agents' Open queue needing action already taken.
@@ -104,6 +105,7 @@ def upsert_ticket():
         admin1_id=admin1.id if admin1 else None,
         country_id=admin1.country_id if admin1 else None,
         problem_details=issue,
+        issue_type=issue_type or None,
         spice_platform='BD Support Bot',
         priority='Medium',
         current_status=initial_status,

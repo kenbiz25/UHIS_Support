@@ -67,6 +67,14 @@ def test_flow_saves_messages(tmp_path, monkeypatch):
     contact_state.set_language(user_id, "en")
     contact_state.set_contact(user_id, skipped=True)
 
+    # Structured-intake state lives in its own per-phone file (independent
+    # of the tmp_path-redirected conversation memory above), so a leftover
+    # in-progress intake from another test using the same phone number
+    # would otherwise hijack this message as a field answer instead of
+    # letting it reach the composer.
+    from core.intake import state as intake_state
+    intake_state.clear(user_id)
+
     # act
     out, meta = flow.handle_message(user_id, "Hello, I have fever", session_id=session_id)
 

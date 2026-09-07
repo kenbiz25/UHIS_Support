@@ -11,6 +11,9 @@ import re
 
 from config.settings import settings
 from core.i18n import t as _t
+from core.intake import engine as intake_engine
+from core.intake import state as intake_state
+from core.intake.categories import CATEGORIES as INTAKE_CATEGORIES
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +280,21 @@ class BotFlow:
     # Ticket helpers
     # ------------------------------------------------------------------
 
+    _LANGUAGE_TOKEN_RE = re.compile(r"^\s*([12]|english|bangla|bengali|bn|en|বাংলা)\s*[,:\-]?\s*", re.I)
+
+    @classmethod
+    def _split_leading_language_token(cls, text: str) -> Tuple[str, str]:
+        """Pull a leading language token off the combined first-touch reply
+        (e.g. "1, Rahim Uddin, rahim@example.com, Dhaka" -> ("1", "Rahim
+        Uddin, rahim@example.com, Dhaka")). Returns ("", text) unchanged if
+        no recognizable token leads the reply, so the whole reply is
+        treated as contact info and language falls back to English."""
+        t = text or ""
+        m = cls._LANGUAGE_TOKEN_RE.match(t)
+        if m:
+            return m.group(1).lower(), t[m.end():]
+        return "", t
+
     @staticmethod
     def _is_ticket_yes(text: str) -> bool:
         t = text.strip().lower()
@@ -347,7 +365,7 @@ class BotFlow:
             create_ticket(
                 user_id, summary, transcript,
                 name=contact.get("name", ""), division=contact.get("division", ""),
-                status="Resolved",
+                status="Resolved", issue_type="General/Chat (auto-closed)",
             )
         except Exception:
             logger.exception("Auto-log-ticket-on-close failed for %s", user_id)
@@ -450,6 +468,21 @@ class BotFlow:
         except Exception:
             logger.exception("Failed to forward message to open ticket for %s", user_id)
 
+        # --- Stale-conversation safety net (best-effort, throttled) ---
+        # A reported issue that never got an explicit resolution/close, or a
+        # structured intake abandoned mid-way, auto-becomes an Open ticket
+        # after STALE_TICKET_MINUTES of silence - see core/intake/sweep.py.
+        # Piggybacking on inbound traffic like this is a supplement, not a
+        # substitute, for a real scheduled run of
+        # scripts/sweep_stale_conversations.py; internally throttled so it
+        # doesn't re-scan on every single message.
+        try:
+            if getattr(settings, "ENABLE_TICKETING", True):
+                from core.intake.sweep import sweep_stale
+                sweep_stale()
+        except Exception:
+            logger.exception("Stale-conversation sweep failed")
+
         # If conversation was previously closed and user sends only a short ACK, ignore.
         try:
             if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id:
@@ -460,29 +493,32 @@ class BotFlow:
         except Exception:
             pass
 
-        # --- Language selection: ask once per phone, before anything else ---
-        # Runs first so the contact-intake prompt and every message after it
-        # can be shown in the chosen language. Same once-per-phone +
-        # resume-with-original-message pattern as contact intake below; the
-        # recovered original message is re-saved to memory (not just kept in
-        # the local `cleaned`/`raw` variables) so contact intake's own
-        # marker-based recovery, running right after this, finds it too.
+        # --- Combined language + contact ask: one round trip, not two ---
+        # Runs first so the rest of the conversation can be shown in the
+        # chosen language, and so a ticket later filed is already
+        # attributable. Previously this was two sequential prompts
+        # (language, then contact) - merged into a single combined message
+        # so a routine "unlock my account" request doesn't burn two extra
+        # round trips before it can even reach the menu. Same once-per-phone
+        # + resume-with-original-message pattern as before: the recovered
+        # original message is re-saved to memory so downstream steps
+        # (menu, structured intake) find it too.
         try:
             if getattr(settings, "ENABLE_CONVERSATION_MEMORY", False) and mem and session_id and contact_state:
                 if not contact_state.has_language_been_asked(user_id):
                     # Bangladesh is overwhelmingly Bangla-speaking, so if the
                     # very first message already strongly signals Bangla
                     # (native script, or explicitly naming the language),
-                    # don't make them pick from an English-first menu for
+                    # don't make them pick from an English-first prompt for
                     # something we can already tell - set it and move
-                    # straight on, using this same message as-is.
+                    # straight on, using this same message as-is. Contact
+                    # info still gets asked separately below in that case
+                    # (this message wasn't a reply to any prompt, so there's
+                    # nothing to split a language token off of).
                     if strong_bangla_signal:
                         contact_state.set_language(user_id, "bn")
                         use_bangla = True
                         language = "bn"
-                        # Not a reply to any prompt - this same message is
-                        # the real query, so fall through to contact intake
-                        # using it as-is (no marker to recover from).
                     else:
                         recent = mem.get_recent(session_id, limit=6)
                         already_asked = any(
@@ -490,21 +526,30 @@ class BotFlow:
                         )
 
                         if not already_asked:
-                            lang_prompt = _t("lang_prompt", "en")
+                            combined_prompt = _t("first_touch_intake", "en")
                             try:
-                                self.whatsapp.send_message(user_id, message=lang_prompt)
+                                self.whatsapp.send_message(user_id, message=combined_prompt)
                             except Exception:
                                 pass
-                            mem.save_message(session_id, "assistant", lang_prompt)
+                            mem.save_message(session_id, "assistant", combined_prompt)
                             mem.save_message(session_id, "system", "lang_asked")
-                            return lang_prompt, {"language_prompt_asked": True}
+                            return combined_prompt, {"first_touch_prompt_asked": True}
 
-                        # This message is the reply to our language prompt.
-                        sel = cleaned.strip().lower()
-                        chosen_lang = "bn" if sel in ("2", "bangla", "bengali", "bn", "বাংলা") else "en"
+                        # This message is the reply to the combined prompt -
+                        # split off the leading language token and parse the
+                        # remainder (if any) as the contact reply, resolving
+                        # both first-touch steps in one turn.
+                        lang_token, remainder = self._split_leading_language_token(cleaned)
+                        chosen_lang = "bn" if lang_token in ("2", "bangla", "bengali", "bn", "বাংলা") else "en"
                         contact_state.set_language(user_id, chosen_lang)
                         use_bangla = chosen_lang == "bn"
                         language = chosen_lang
+
+                        if not remainder.strip() or self._is_contact_skip(remainder):
+                            contact_state.set_contact(user_id, skipped=True)
+                        else:
+                            parsed_name, parsed_email, parsed_division = self._parse_contact_reply(remainder)
+                            contact_state.set_contact(user_id, name=parsed_name, email=parsed_email, division=parsed_division)
 
                         recent_full = mem.get_recent(session_id, limit=15)
                         pending = self._extract_pending_issue(recent_full, marker="lang_asked")
@@ -513,7 +558,7 @@ class BotFlow:
                             raw = pending
                             mem.save_message(session_id, "user", pending)
         except Exception:
-            logger.exception("Language selection step failed for %s", user_id)
+            logger.exception("Combined language/contact intake step failed for %s", user_id)
 
         # --- Contact intake: soft, skippable ask for name/email/division ---
         # Runs once per phone, before any menu/AI reply, so a ticket this
@@ -579,6 +624,7 @@ class BotFlow:
                         ticket_id, sl_no = create_ticket(
                             user_id, issue, conversation_summary,
                             name=contact.get("name", ""), division=contact.get("division", ""),
+                            issue_type="Handoff Request",
                         )
                         mem.save_message(session_id, "system", "ticket_created")
                         if ticket_id:
@@ -609,6 +655,70 @@ class BotFlow:
                     # else: ambiguous reply — fall through to normal RAG flow
         except Exception:
             pass
+
+        # --- Structured intake in progress: capture the answer, ask the
+        # next field, or (once every field is answered) create the ticket
+        # directly. Runs before resolution/closing detection below so an
+        # intake answer that happens to contain a word like "fixed" or
+        # "thanks" isn't misread as ending the conversation.
+        try:
+            if getattr(settings, "ENABLE_TICKETING", True) and intake_state.is_active(user_id):
+                step = intake_engine.handle_reply(user_id, cleaned, language)
+                if step:
+                    if not step.get("done"):
+                        prompt = step.get("prompt", "")
+                        try:
+                            self.whatsapp.send_message(user_id, message=prompt)
+                        except Exception:
+                            pass
+                        try:
+                            if mem and session_id:
+                                mem.save_message(session_id, "assistant", prompt)
+                        except Exception:
+                            pass
+                        return prompt, {"intake_prompt": True, "language": language}
+
+                    issue_type = step.get("issue_type", "")
+                    issue_text = step.get("issue_text", "")
+                    transcript = ""
+                    try:
+                        if mem and session_id:
+                            transcript = self._full_transcript(mem.get_recent(session_id, limit=50))
+                    except Exception:
+                        pass
+                    conversation_summary = transcript or issue_text
+
+                    from core.tickets.ticket_manager import create_ticket
+                    from core.tickets import state as ticket_state
+                    contact = (contact_state.get_contact(user_id) if contact_state else None) or {}
+                    ticket_id, sl_no = create_ticket(
+                        user_id, issue_text, conversation_summary,
+                        name=contact.get("name", ""), division=contact.get("division", ""),
+                        status="Open", issue_type=issue_type,
+                    )
+                    if ticket_id:
+                        if sl_no:
+                            ticket_state.set_state(user_id, ticket_id, sl_no, "Open")
+                        outgoing = _t("ticket_created", language).format(ref=sl_no or ticket_id)
+                    else:
+                        outgoing = _t("ticket_failed", language)
+
+                    try:
+                        self.whatsapp.send_message(user_id, message=outgoing)
+                    except Exception:
+                        pass
+                    try:
+                        if mem and session_id:
+                            mem.save_message(session_id, "assistant", outgoing)
+                            mem.save_message(session_id, "system", "ticket_created")
+                    except Exception:
+                        pass
+                    return outgoing, {
+                        "ticket_created": bool(ticket_id), "ticket_id": ticket_id,
+                        "issue_type": issue_type, "language": language,
+                    }
+        except Exception:
+            logger.exception("Structured intake step failed for %s", user_id)
 
         # Resolution messages -> single closing reply, close marker, and an
         # auto-logged ticket (status=Resolved) so every conversation leaves a
@@ -649,7 +759,9 @@ class BotFlow:
 
             return outgoing, {"conversation_closed": True, "language": language}
 
-        # First-touch menu (only once per session)
+        # First-touch menu (shown once automatically; "menu" re-shows it -
+        # e.g. after the composer below suggests it for an operational
+        # request it can't itself resolve)
         try:
             if (
                 getattr(settings, "ENABLE_FIRST_TOUCH_MENU", True)
@@ -659,8 +771,30 @@ class BotFlow:
             ):
                 recent = mem.get_recent(session_id, limit=20)
 
-                menu_shown = any(m.get("role") == "system" and m.get("text") == "menu_shown" for m in recent)
-                menu_consumed = any(m.get("role") == "system" and m.get("text") == "menu_consumed" for m in recent)
+                # Latest of {menu_shown, menu_consumed} wins, not "ever
+                # occurred" - so explicitly re-showing the menu (below)
+                # genuinely re-opens selection instead of being permanently
+                # blocked by an old menu_consumed marker from earlier in
+                # the same session.
+                menu_events = [
+                    m.get("text") for m in recent
+                    if m.get("role") == "system" and m.get("text") in ("menu_shown", "menu_consumed")
+                ]
+                last_menu_event = menu_events[-1] if menu_events else None
+                menu_shown = last_menu_event in ("menu_shown", "menu_consumed")
+                menu_consumed = last_menu_event == "menu_consumed"
+
+                if cleaned.strip().lower() in ("menu", "show menu", "main menu", "মেনু"):
+                    try:
+                        from core.menu import menu_routing
+                        menu_list = menu_routing.show_menu_options(None, language=language)
+                        menu_text = "\n".join(menu_list)
+                        self.whatsapp.send_message(user_id, message=menu_text)
+                        mem.save_message(session_id, "assistant", menu_text)
+                        mem.save_message(session_id, "system", "menu_shown")
+                        return menu_text, {"menu_shown": True, "language": language}
+                    except Exception:
+                        pass
 
                 # show menu only if never shown before (and not consumed)
                 if not menu_shown and not menu_consumed:
@@ -681,23 +815,63 @@ class BotFlow:
                         from core.menu.menu_routing import process_menu_selection
                         sel = cleaned.strip().lower()
                         reply, meta = process_menu_selection(sel, language=language)
+                        category_id = meta.get("menu_selected")
 
-                        # Only treat as menu selection if menu_selected is not None
-                        if meta.get("menu_selected") is not None:
-                            try:
-                                self.whatsapp.send_message(user_id, message=reply)
-                            except Exception:
-                                pass
-                            try:
-                                mem.save_message(session_id, "assistant", reply)
-                                mem.save_message(session_id, "system", "menu_consumed")
-                            except Exception:
-                                pass
-                            return reply, {**(meta or {}), "language": language}
+                        if category_id is not None:
+                            # Categories 1, 2, 3, 4 and 7 are structured
+                            # intake: skip RAG entirely and go straight to a
+                            # short Q&A that ends in a ticket, since these
+                            # are operational requests (unlock this account,
+                            # add this SS, pull this report) a knowledge
+                            # base was never going to answer - no reason to
+                            # wait on a confidence threshold or a yes/no
+                            # confirmation. Categories 5/6 keep the old
+                            # canned/RAG-driven reply already in `reply`.
+                            if category_id in INTAKE_CATEGORIES:
+                                reply = intake_engine.start_intake(user_id, category_id, language)
+                            if reply:
+                                try:
+                                    self.whatsapp.send_message(user_id, message=reply)
+                                except Exception:
+                                    pass
+                                try:
+                                    mem.save_message(session_id, "assistant", reply)
+                                    mem.save_message(session_id, "system", "menu_consumed")
+                                except Exception:
+                                    pass
+                                return reply, {**(meta or {}), "language": language}
                     except Exception:
                         pass
         except Exception:
             pass
+
+        # --- Auto-detect a structured-intake category from free text ---
+        # A user who skips the menu numbers and just types their issue
+        # straight away ("my account is locked", "add SS Sabana under SK
+        # Asma") is describing exactly one of the operational categories
+        # above - recognize it here too (keyword-based, not an LLM call, so
+        # it's free and instant) and start that category's Q&A directly,
+        # rather than handing an unanswerable question to RAG and waiting
+        # on a confidence threshold or handoff phrase to notice.
+        try:
+            if getattr(settings, "ENABLE_TICKETING", True) and mem and session_id:
+                from core.intake.classifier import classify as classify_intake
+                category_id = classify_intake(cleaned)
+                if category_id:
+                    prompt = intake_engine.start_intake(user_id, category_id, language)
+                    if prompt:
+                        try:
+                            self.whatsapp.send_message(user_id, message=prompt)
+                        except Exception:
+                            pass
+                        try:
+                            mem.save_message(session_id, "assistant", prompt)
+                            mem.save_message(session_id, "system", "menu_consumed")
+                        except Exception:
+                            pass
+                        return prompt, {"menu_selected": category_id, "auto_classified": True, "language": language}
+        except Exception:
+            logger.exception("Free-text intake classification failed for %s", user_id)
 
         composer = self._get_composer()
         if composer is None:
