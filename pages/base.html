@@ -406,12 +406,20 @@ window.APP_URLS = {
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% endif %}
 
-<!-- Support Widget (self-service) -->
+{% if not current_user.is_authenticated %}
+<!-- Support Widget (self-service) - for anonymous/public visitors only.
+     Loading it for logged-in staff put a z-index:999999 fixed-position
+     overlay (with its own "Chat on WhatsApp" quick-action) on every portal
+     page, including the ticket queue - close enough to the Action column
+     to swallow clicks meant for the ticket's own "View" button and open
+     WhatsApp instead. Staff have no use for their own self-service widget
+     while managing tickets in the tool it files tickets into. -->
 <script src="{{ url_for('static', filename='widget/support-widget.js') }}"
         data-base-url="{{ request.host_url.rstrip('/') }}"
         data-app="Admin Portal"
         data-primary-color="{{ branding.primary_color if branding else '#2514BE' }}"
         data-whatsapp="{{ support_whatsapp_number }}">
 </script>
+{% endif %}
 </body>
 </html>
