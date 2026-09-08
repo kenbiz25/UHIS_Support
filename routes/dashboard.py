@@ -65,6 +65,16 @@ def _region_filter(query, user):
         else:
             conditions.append(Ticket.country_id == country_id)
 
+    # A ticket with no resolved region (e.g. a WhatsApp-bot ticket whose
+    # free-text division didn't match a seeded AdminLevel1 - happens
+    # whenever the reporter skipped/mistyped the contact-intake step) would
+    # otherwise be invisible to every regionally-scoped Admin/Agent, with no
+    # way for them to notice or claim it. Show it everywhere instead of
+    # silently dropping it, matching the "no region configured -> global
+    # access" fallback a few lines up for the *user* side of this same
+    # trade-off.
+    conditions.append(Ticket.country_id.is_(None))
+
     scope_label = " · ".join(r[2] for r in regions)
     return query.filter(db.or_(*conditions)), scope_label
 
